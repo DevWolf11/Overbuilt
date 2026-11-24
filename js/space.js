@@ -216,6 +216,23 @@ EARTH.spawns = [
 
 function siteAngle(b, east) { return b.padAngle - east / b.radius; }
 
+// [WP10] The Naval Range (the ships update, ship.js ai): the open sea east of the islands between the Faroes and Shetland,
+// 20-280 m deep (probed), with a ship of the player's (a sea kind, or any craft afloat) within r + 6 km of (e, z), Settings
+// → Targets at Practice or Hostile, alone (no room, no battle). Places as EARTH.spawns' sea spots (e, z, the bow along yaw):
+// Practice, a moored hulk 2 km out from the slipway and three ships steaming loops (each loop r m round its middle: a 3 km
+// loop and a 6 km one further east), a ship sunk back 60 s later at its loop's far point; Hostile, waves from the east,
+// line abreast at e 16,000 `gap` m apart, heading west.
+EARTH.navalRange = {
+  e: 9000, z: 0, r: 9000, spot: 'slipway',
+  hulk: { key: 'cyclon', e: 5540, z: 0, yaw: Math.PI / 2 },
+  loops: [
+    { key: 'cyclon', kn: 12, e: 7600, z: -1800, r: 480 },
+    { key: 'osca', kn: 18, e: 7600, z: 1200, r: 480 },
+    { key: 'olivar', kn: 15, e: 11500, z: 0, r: 955 },
+  ],
+  hostile: { e: 16000, z: -1500, yaw: Math.PI, gap: 700 },
+};
+
 const MOON = makeBody({
   id: 'moon', name: 'Moon', radius: 90000, surfaceG: 1.62, parent: EARTH, orbitRadius: 6.2e6, orbitPhase: 2.4, orbitDir: -1,
   colors: { ground: '#6e6f73', surface: '#a8a9ad', deep: '#4b4c50', map: '#9a9ba0', rock: '#5c5d61', halo: '0,0,0' },

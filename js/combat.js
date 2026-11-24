@@ -1208,6 +1208,7 @@ const Combat = (() => {
   // crashes and goes (death.js); the kill and the SHOT DOWN banner are the player's when they (or a drone they flew)
   // hit it last.
   function aiDown(v, sim) {
+    if (v.ai.sea && typeof Ship !== 'undefined') { Ship.aiDown(v, sim); return; } // [WP10] (a computer's ship: her fate books her, ship.js; never a hulk)
     v.ai.down = true; v.aiFire = false;
     if (!v.ai.ground) { if (v.hulk == null) v.hulk = sim.time || 0; v.isDebris = true; v.throttle = 0; v.ctl.v = v.ctl.h = v.ctl.r = 0; }
     if (byMe(v.lastHitBy, sim) && !v.ai.ally) {
@@ -1482,6 +1483,7 @@ const Combat = (() => {
     S.sea = F.vessels.some((o) => o.hydro);
     if (S.sea) Ship.frame(F, dt); // (mooring, collisions, flooding, fires, damage control, fate, the AI: ship.js)
     else if (typeof Ship !== 'undefined' && Ship.D.length) Ship.D.length = 0; // [WP6] (no ship afloat: no moving decks)
+    if (!S.sea && typeof Ship !== 'undefined' && Ship.aiOn) Ship.aiFrame(F, dt); // [WP10] (no ship afloat, the Naval Range's bar, ships or aircraft still out: its checks put them away)
     S.pd = F.vessels.some((o) => !!o.ciws && o.ciws.length > 0 && !o.dead); // ([WP9] a close-in gun aboard anything: ship.js fires it)
     if (S.pd && typeof Ship !== 'undefined') Ship.ciwsStep(F, dt);
     const onEarth = v.body === EARTH, near = onEarth && len(v.x - at(8000, 0, 0).x, v.y - at(8000, 0, 0).y, v.z - at(8000, 0, 0).z) < 60000;
@@ -1517,7 +1519,7 @@ const Combat = (() => {
       }
       // enemy fighters in hostile mode: two at a time
       if (hostile() && !F.destroyed) {
-        const alive = F.vessels.filter((o) => isFighter(o) && !o.ai.down && o.control && !o.dead);
+        const alive = F.vessels.filter((o) => isFighter(o) && !o.ai.strike && !o.ai.down && o.control && !o.dead); // ([WP10] the Naval Range's strike aircraft aren't this range's: its own two still come)
         S.fighterT -= dt;
         if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed && !(v.kind === 'drone' && v.carrier))) { // (a tank's own bay drone is the tank's: no jets for it, review P5-MODES-2)
           const b = spawnFighter(F); S.fighterT = 45;
@@ -1527,7 +1529,7 @@ const Combat = (() => {
     }
     for (const t of S.targets) if (!t.alive && t.fv) fallTarget(t, dt, F); // (drones shot down fall: the range's and the Tank Range's)
     for (const o of F.vessels) if (o.ai && !o.dead) {
-      if (o.ai.ground || o.ai.drone || o.ai.sea) continue; // (the ground AI: groundai.js runs it, and says when it goes; an AI drone is drone.js's, never flyFighter's; [WP9] the computer's ships ship.js's, never flown as bandits nor cleared with them: WP10 runs them)
+      if (o.ai.ground || o.ai.drone || o.ai.sea || o.ai.strike) continue; // (the ground AI: groundai.js runs it, and says when it goes; an AI drone is drone.js's, never flyFighter's; [WP9] the computer's ships ship.js's, never flown as bandits nor cleared with them; [WP10] the Naval Range's strike aircraft too: ship.js flies them)
       if (o.control && !o.ai.down) flyFighter(o, F, dt);
       if (!o.control && !o.ai.down) aiDown(o, F);
       if (!hostile() || !near) o.dead = true;
@@ -1653,7 +1655,7 @@ const Combat = (() => {
     if (now - LP.at < 1000 && now >= LP.at && LP.W === W && LP.H === H && LP.key === key) return LP.boxes;
     LP.at = now; LP.W = W; LP.H = H; LP.key = key; LP.boxes = [];
     if (typeof document === 'undefined') return LP.boxes;
-    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar', '#flight-alert']) {
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar', '#naval-bar', '#flight-alert']) { // ([WP10] the Naval Range's bar)
       const e = document.querySelector(q);
       if (!e || e.hidden) continue;
       const r = e.getBoundingClientRect();
@@ -2048,7 +2050,7 @@ const Combat = (() => {
     S, step, frame, reset, damage, impact, explode, engineK, liftK, hpFrac, maxHp, drawHUD, noHUD, aimCross, cycle, status, systems, integrity, flares, chaff, stealthOf,
     countermeasures, netShot, netMissile, netMissileUpdate, netMissileEnd, netFlares, netBoom,
     // (for the ground update's systems: aim.js, armour.js, groundai.js)
-    candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore,
+    candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore, dropBomb, // ([WP10] dropBomb: the Naval Range's strike aircraft)
     targetCentre, hitTarget, aiDown, jams, radarOf, boomFX, holdRips, flushRips, spawnFighter,
     // (the big update's radar: radar.js)
     clearLine, radarReach, siteSees, hostile,

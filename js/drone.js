@@ -613,7 +613,7 @@ const Drone = (() => {
     if (O.P && now - O.at < 1000 && O.W === W && O.H === H && O.rk === rk) return O.P;
     O.at = now; O.W = W; O.H = H; O.rk = rk;
     const touch = typeof Controls !== 'undefined' && Controls.touch, tr = rectOf('#flight-ui .flight-top-right'), warp = rectOf('#warp'), jam = rectOf('#jam-chip');
-    const top = [tr, warp, jam, rectOf('#mp-bar'), rectOf('#gai-bar'), rectOf('#flight-alert')].filter(Boolean);
+    const top = [tr, warp, jam, rectOf('#mp-bar'), rectOf('#gai-bar'), rectOf('#naval-bar'), rectOf('#flight-alert')].filter(Boolean); // ([WP10] the Naval Range's bar)
     if (rb) {
       top.push({ l: rb.x - rb.R, r: rb.x + rb.R, t: rb.y - rb.R, b: rb.y + rb.R + (rb.lines === 2 ? 28 : 14) });
       if (rb.ty != null && Combat.S.rwr > 1) top.push({ l: W / 2 - 150, r: W / 2 + 150, t: rb.ty - 22, b: rb.ty + 44 }); // (the warning's lines)

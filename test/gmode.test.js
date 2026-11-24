@@ -412,7 +412,7 @@ placementChecks(ctx, 'highland', 'Highland Ridge');
   t('naval: ...and on Highland Ridge (and the Runway) a ship takes nothing, a tank as ever ("boat" still never)', rate(ship(0), 'highland') === 0 && rate(ship(0), 'runway') === 0 && rate(unit(0, null), 'highland') < 0 && rate(unit(0, null, { kind: 'boat' }), 'highland') === 0);
   const r = until(o, 'A', [ship(0, Z(o, 'A')), ship(0, Z(o, 'A'))], 0);
   t('naval: the same rules at sea: two ships take a neutral zone in 13.5 s (1.5×: 13.3 s, at the host\'s 4 Hz)', r.s === 13.5 && Z(o, 'A').own === 0 && J(r.ev) === J([{ k: 'cap', zone: 'A', team: 0, by: [0, 1] }]), r);
-  t('naval: navalStock: the money\'s ships best first, ending with the patrol boat (NAVAL_STOCK\'s table, or the same here until it is in)',
+  t('naval: navalStock: the money\'s ships best first, ending with the patrol boat (NAVAL_STOCK\'s table)',
     J(GM.navalStock(45000)) === J(['cyclon', 'osca', 'zodiak', 'cyclon']) && J(GM.navalStock(75000)) === J(['vizby', 'pegazus', 'osca', 'cyclon']) && J(GM.navalStock(120000)) === J(['arley', 'olivar', 'vizby', 'cyclon'])
     && J(GM.navalStock(1)) === J(GM.navalStock(45000)) && J(GM.navalStock('x')) === J(GM.navalStock(45000)) && GM.navalStock(120000).every((k) => ctx.TEMPLATES[k] && ctx.TEMPLATES[k].kind === 'ship'));
 }

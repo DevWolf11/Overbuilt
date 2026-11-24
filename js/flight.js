@@ -769,7 +769,7 @@ const Flight = {
       ];
       if (others.length) acts.push({ label: `Switch to ${others[0].name}`, primary: true, onClick: () => this.switchTo(others[0]) });
       const sea = !!v && (isSea(v.kind) || !!(v.sh && v.fate)), fate = sea ? SHIP_FATES[v.fate] || 'Ship lost' : null; // (the ships update: Sunk, Capsized…; [WP8] a flying boat or an amphibious tank lost on the water too)
-      UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : 'Mission update', title: fate || (ground ? 'Knocked out' : 'Vessel destroyed'), body: this.summaryHTML('', ground), actions: acts });
+      UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : ground && typeof Ship !== 'undefined' && Ship.tally && Ship.tally(this) ? 'Naval Range' : 'Mission update', title: fate || (ground ? 'Knocked out' : 'Vessel destroyed'), body: this.summaryHTML('', ground), actions: acts }); // ([WP10] the Naval Range's kicker)
     });
   },
   // What the strip says happened: a ground vehicle's ammunition gone up, knocked out (wrecked in a crash of its own);
@@ -815,7 +815,7 @@ const Flight = {
     const P = this._alP || (this._alP = { key: '', at: -1e9, how: '' });
     if (!P.ro && typeof ResizeObserver === 'function') { // (the flight data grows a row, the room's bar a line: placed again at once)
       P.ro = new ResizeObserver(() => { if (!al.hidden && P.key) { P.key = ''; this.placeAlert(al); } });
-      for (const q of ['#flight-ui .telemetry', '#mp-bar', '#gai-bar']) { const e = document.querySelector(q); if (e) P.ro.observe(e); }
+      for (const q of ['#flight-ui .telemetry', '#mp-bar', '#gai-bar', '#naval-bar']) { const e = document.querySelector(q); if (e) P.ro.observe(e); } // ([WP10] the Naval Range's bar: ship.js observes it too when it makes it)
     }
     const key = `${al.className}|${al.textContent.replace(/[\d.,]+/g, '0')}|${W}|${H}|${z}`;
     if (key === P.key && now - P.at < 1000) return;
@@ -888,7 +888,7 @@ const Flight = {
     const out = [], add = (e) => { if (!e || e.hidden) return; const r = e.getBoundingClientRect(); if (r.width > 0 && r.height > 0) out.push({ l: r.left, t: r.top, r: r.right, b: r.bottom, p: 6 }); };
     const C = typeof Controls !== 'undefined' && Controls.CTL, hud = C ? Controls.hud() : 'air';
     if (C) for (const k in C) if (k !== 'joy' && (C[k][2] === 'both' || C[k][2] === hud)) add(document.querySelector(C[k][0]));
-    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar', '#mp-feed', '#hint', '#flight-ui .rot-controls']) add(document.querySelector(q));
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar', '#naval-bar', '#mp-feed', '#hint', '#flight-ui .rot-controls']) add(document.querySelector(q)); // ([WP10] the Naval Range's bar)
     const T = document.querySelector('#toasts'), tr = T && T.getBoundingClientRect();
     if (tr && tr.width > 0) out.push({ l: tr.left, t: tr.top, r: tr.right, b: tr.top + 36, p: 4, soft: 'toast' });
     const box = (l, t, r, b, soft) => out.push({ l, t, r, b, p: 0, soft }), ball = (x, y, R, b = 14) => box(x - R, y - R, x + R, y + R + b);
@@ -988,7 +988,8 @@ const Flight = {
     const got = Object.keys(this.fresh || {}).map((f) => MILESTONES[f]).filter(Boolean);
     const ms = got.length ? `<h3 class="summary-h">Milestones</h3><ul class="milestones">${got.map((a) => `<li>${a}</li>`).join('')}</ul>` : '';
     if (ground) { // (P4 play-test) a ground vehicle's: what it drove and how fast in km/h, and the Tank Range's tally (not a rocket's flight)
-      const R0 = GroundAI.range, kos = R0 ? `<div><dt>Knock-outs</dt><dd>${R0.kos}${R0.best ? ` · best shot ${fmt.dist(R0.best)}` : ''}</dd></div>` : '';
+      const R0 = GroundAI.range, NR = typeof Ship !== 'undefined' && Ship.tally ? Ship.tally(this) : null; // ([WP10] the Naval Range's tally: ships sunk)
+      const kos = (R0 ? `<div><dt>Knock-outs</dt><dd>${R0.kos}${R0.best ? ` · best shot ${fmt.dist(R0.best)}` : ''}</dd></div>` : '') + (NR ? `<div><dt>Ships sunk</dt><dd>${NR.kos}${NR.best ? ` · best shot ${fmt.dist(NR.best)}` : ''}</dd></div>` : '');
       const sea = !!this.active && isSea(this.active.kind) && typeof SHIP !== 'undefined'; // (the ships update: sailed, in knots)
       return `<dl class="summary">
       <div><dt>Time</dt><dd>${fmt.clock(this.time)}</dd></div>${kos}

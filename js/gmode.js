@@ -27,6 +27,15 @@ const GROUND_STOCK = Object.freeze({
   120000: Object.freeze(['ma1', 'tk72', 'leapard1']), // modern
   fallback: 'technical',
 });
+// [WP10] (the ships update) The stock ships the Naval Practice battle (spec §9.3) picks at each money tier, best first,
+// as GROUND_STOCK's; below the cheapest, the Cyclon. Data only: the battle that reads it comes after the multiplayer
+// package's sea arena.
+const NAVAL_STOCK = Object.freeze({
+  45000: Object.freeze(['cyclon', 'osca', 'zodiak']),
+  75000: Object.freeze(['vizby', 'pegazus', 'osca']),
+  120000: Object.freeze(['arley', 'olivar', 'vizby']),
+  fallback: 'cyclon',
+});
 
 const GroundMode = (() => {
   const CAP_RATE = 1 / 20; // zone progress a second for one vehicle: a neutral zone in 20 s, an enemy's in 40 s
@@ -55,7 +64,6 @@ const GroundMode = (() => {
   const capturer = (u, GK) => !!u && (u.team === 0 || u.team === 1) && !!u.gd && fin(u.e) && fin(u.z) && fin(u.speed) &&
     Math.abs(u.speed) < CAP_SPEED && (GK ? GK.has(u.kind) : u.kind === 'tank' || u.kind === 'car');
   const SEA = { abreast: 120, astern: 250, row: 6, alt: 300, heli: 60 }; // [WP11] a sea arena's starts: ships abreast 120 m apart across the pad, six to a row, the next row 250 m astern; helicopters and drones 300 m up, 60 m apart abreast
-  const STOCK_SEA = { 45000: ['cyclon', 'osca', 'zodiak'], 75000: ['vizby', 'pegazus', 'osca'], 120000: ['arley', 'olivar', 'vizby'], fallback: 'cyclon' }; // [WP11] (NAVAL_STOCK's numbers, spec §9.3, until it is in)
   const kindsOf = new Map(); // [WP11] (an arena's own capturer kinds, as a Set)
   const inZone = (e, z, zone) => {
     if (!zone || !fin(e) || !fin(z)) return false;
@@ -118,9 +126,9 @@ const GroundMode = (() => {
       return [...GROUND_STOCK[tier], GROUND_STOCK.fallback];
     },
     // [WP11] The stock ships to fall back to in a Naval Battle with this much money, best first, ending with the fallback
-    // (NAVAL_STOCK, beside GROUND_STOCK, when it is defined; else the same table here)
+    // (NAVAL_STOCK's, beside GROUND_STOCK)
     navalStock(budget) {
-      const T = typeof NAVAL_STOCK !== 'undefined' && NAVAL_STOCK ? NAVAL_STOCK : STOCK_SEA;
+      const T = NAVAL_STOCK;
       const tiers = Object.keys(T).filter((k) => k !== 'fallback').map(Number).sort((a, b) => a - b);
       let tier = tiers[0];
       for (const m of tiers) if (+budget >= m) tier = m;

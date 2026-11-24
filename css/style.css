@@ -750,6 +750,13 @@ kbd {
   .gai-best i { display: inline; }
   .gai-sub { text-align: center; }
 }
+/* [WP10 review] the Naval Range's bar under the time warp while the warp shows (it takes the warp's place only while a
+   Hostile wave is on her: ship.js bar) */
+#naval-bar.under-warp { top: calc(56px + var(--safe-t)); }
+@media (max-width: 760px) { #naval-bar.under-warp { top: calc(100px + var(--safe-t)); } }
+@media (max-height: 500px) { #naval-bar.under-warp { top: calc(52px + var(--safe-t)); } }
+/* (and the toasts under it, as it grows: its bottom on the screen, --naval-b, ship.js bar) */
+body:has(#naval-bar.under-warp:not([hidden])) .toasts { top: var(--naval-b, calc(112px + var(--safe-t))); }
 
 /* ================================================================== multiplayer */
 .home-btn.mp-btn { border-color: rgba(98, 208, 255, 0.55); }
@@ -1179,12 +1186,13 @@ body.flying:not(.mapping) :is(.ammo-chip, .gmap, .ammo-stack, .gbtn) { --panel: 
   body.ground.g-stages .stage-box, body.ground.g-thrust:not(.g-stages) .throttle-box { bottom: calc(208px + var(--safe-b)); } /* (over the brake) */
   body.ground.g-thrust .throttle-box { bottom: calc(266px + var(--safe-b)); }
   .gmap { width: 112px; height: 112px; top: calc(98px + var(--safe-t)); }
-  body:has(#mp-bar.flight:not([hidden])) .gmap, body:has(#gai-bar:not([hidden])) .gmap { top: max(calc(140px + var(--safe-t)), var(--gmap-t, 0px)); } /* (under the room's bar, or the range's and the practice battle's; lower when the bar grows: GHUD.place's --gmap-t) */
+  body:has(#mp-bar.flight:not([hidden])) .gmap, body:has(#gai-bar:not([hidden])) .gmap, body:has(#naval-bar:not([hidden])) .gmap { top: max(calc(140px + var(--safe-t)), var(--gmap-t, 0px)); } /* (under the room's bar, or the range's and the practice battle's; lower when the bar grows: GHUD.place's --gmap-t) */
   body.ground .hint { top: var(--gmap-b, calc(220px + var(--safe-t))); }
   body.ground #btn-weapon { bottom: calc(262px + var(--safe-b)); }
   /* the sight's zero, left of the minimap (the thumbs' buttons fill the bottom) */
   .g-range { left: auto; transform: none; bottom: auto; right: calc(var(--gut-r) + 122px); top: calc(98px + var(--safe-t)); }
-  body:has(#mp-bar.flight:not([hidden])) .g-range, body:has(#gai-bar:not([hidden])) .g-range { top: calc(140px + var(--safe-t)); }
+  body:has(#mp-bar.flight:not([hidden])) .g-range, body:has(#gai-bar:not([hidden])) .g-range, body:has(#naval-bar:not([hidden])) .g-range { top: calc(140px + var(--safe-t)); }
+  body:has(#naval-bar.under-warp:not([hidden])) .g-range { top: max(calc(140px + var(--safe-t)), var(--gmap-t, 0px)); } /* ([WP10 review] under the bar under the warp) */
 }
 @media (max-width: 760px) and (max-height: 700px) {
   body.ground #btn-fire { width: 76px; height: 76px; right: calc(var(--gut-r) + 2px); bottom: calc(18px + var(--safe-b)); }
@@ -1209,7 +1217,7 @@ body.flying:not(.mapping) :is(.ammo-chip, .gmap, .ammo-stack, .gbtn) { --panel: 
   .ammo-stack { flex-direction: row-reverse; right: calc(var(--gut-r) + 144px); bottom: calc(20px + var(--safe-b)); }
   .ammo-chip { width: 50px; height: 34px; font-size: 11px; }
   body.ground #btn-weapon { right: calc(var(--gut-r) + 144px); bottom: calc(66px + var(--safe-b)); min-width: 76px; }
-  .gmap, body:has(#gai-bar:not([hidden])) .gmap { width: 96px; height: 96px; top: calc(54px + var(--safe-t)); } /* (the range's bar is up top in the middle here) */
+  .gmap, body:has(#gai-bar:not([hidden])) .gmap, body:has(#naval-bar:not([hidden])) .gmap { width: 96px; height: 96px; top: calc(54px + var(--safe-t)); } /* (the range's bar is up top in the middle here) */
   body.ground .round.brake { position: static; }
   body.ground.g-stages .stage-box { bottom: calc(114px + var(--safe-b)); } /* (over the stick; the throttle beside the brake) */
   body.ground.g-thrust .throttle-box, body.ground.g-thrust:not(.g-stages) .throttle-box { left: calc(var(--gut-l) + 170px); bottom: calc(14px + var(--safe-b)); }
@@ -1276,7 +1284,7 @@ body.pc.ground.g-thrust:not(.g-stages) .throttle-box { bottom: calc(24px + var(-
 @media (max-height: 500px) { .kh-list { gap: 1px 12px; } }
 
 /* the layout editor: every movable control outlined, the chosen one solid; the rest of the HUD faded; its bar */
-body.ctl-edit #flight-ui :is(.telemetry, .flight-top-right, #warp, #hint, #map-legend, #flight-alert, .sight-vig, #gai-bar) { opacity: 0.3; }
+body.ctl-edit #flight-ui :is(.telemetry, .flight-top-right, #warp, #hint, #map-legend, #flight-alert, .sight-vig, #gai-bar, #naval-bar) { opacity: 0.3; }
 body.ctl-edit #joy-zone { outline: 1px dashed rgba(98, 208, 255, 0.4); outline-offset: -1px; background: rgba(98, 208, 255, 0.04); }
 body.ctl-edit :is(#joy, #sas-bar, #flight-ui .air-btns, #flight-ui .roll-btns, #btn-brake, #flight-ui .throttle-box, #flight-ui .stage-box, #btn-fire, #btn-cm, #btn-weapon, #btn-catapult,
   #btn-sight, #btn-mg, #btn-lock, #ammo-stack, #btn-range, #gmap, #key-hints, #btn-radar) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
