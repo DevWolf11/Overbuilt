@@ -584,6 +584,10 @@ if (part(6)) {
     await set(1); await page.waitForTimeout(400);
     await page.evaluate(() => Controls.edit());
     await frames(page, 2);
+    // (the editor shows every Armour control, a Stage pill too, which stands the lever higher: her buttons go up with it)
+    const lv = await page.evaluate(() => { const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width }; }, T = r('#flight-ui .throttle-box');
+      return { T, on: ['#btn-shold', '#btn-sdc', '#btn-sciws'].map(r).filter((B) => B.w > 0 && B.l < T.r && B.r > T.l && B.t < T.b && B.b > T.t).length, above: ['#btn-shold', '#btn-sdc'].map(r).every((B) => B.w > 0 && B.b <= T.t && T.t - B.b < 20) }; });
+    ok('a ship\'s layout editor: her HOLD, DC and CIWS stand over the lever as in flight, not on it (the editor\'s Stage pill raises the lever)', lv.on === 0 && lv.above, lv);
     const hb = await page.evaluate(() => { const r = document.querySelector('#btn-shold').getBoundingClientRect(); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, w: r.width }; });
     await T.down(4, hb.x, hb.y); for (let i = 1; i <= 5; i++) await T.move(4, hb.x + i * 8, hb.y - i * 6); await T.up(4); await frames(page, 2);
     const ed = await page.evaluate(() => { const r = document.querySelector('#btn-shold').getBoundingClientRect(), L = JSON.parse(localStorage.getItem('rss.layout') || '{}'); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, sel: document.querySelector('#ctl-edit-bar .ce-sel b') && document.querySelector('#ctl-edit-bar .ce-sel b').textContent, saved: L.portrait && L.portrait.ground && L.portrait.ground.hold }; });

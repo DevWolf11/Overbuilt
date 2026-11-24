@@ -1488,9 +1488,13 @@ body.ship:not(.pc) .g-ship:not([hidden]) { display: flex; flex-direction: column
 #btn-sdc[aria-pressed="true"] { background: rgba(255, 181, 71, 0.18); border-color: var(--amber); color: var(--amber); }
 #btn-sdc[aria-pressed="true"] .sb-sub { color: var(--amber); }
 @media (max-width: 760px) { .ship-btns { bottom: calc(150px + var(--safe-b)); } } /* (8 px over the lever: the radar scope's place under the diagram stays clear on a 360 × 640 phone) */
+/* (with stages left the lever stands higher, a Stage pill under it, as the layout editor always shows it: the row goes
+   up with it, so it never sits on the lever) */
+body.ship.g-stages .ship-btns { bottom: calc(198px + var(--safe-b)); }
+@media (max-width: 760px) { body.ship.g-stages .ship-btns { bottom: calc(266px + var(--safe-b)); } }
 @media (max-height: 500px) {
   .g-ship { width: 42px; height: 42px; }
-  .ship-btns { left: calc(var(--gut-l) + 170px); bottom: calc(14px + var(--safe-b)); }
+  .ship-btns, body.ship.g-stages .ship-btns { left: calc(var(--gut-l) + 170px); bottom: calc(14px + var(--safe-b)); }
   .ship-btns .g-ship { margin-top: -50px; }
 }
 body.ctl-edit.ship :is(#btn-shold, #btn-sdc, #btn-sciws) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
