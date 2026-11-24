@@ -57,16 +57,16 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
 {
   const o = J(`(() => { fresh(2); const b = park(), F = fsim(b, [b]);
     const v = Ship.aiSpawn(F, 'osca', { e: -2300, z: 0, yaw: 0 }, { role: 'fight', skill: 0.5, course: [{ e: 6000, z: 0 }] });
-    let minD = Infinity, bed = 0, avoided = 0, calls0 = 0;
-    run(F, 260, (t, f) => { if (f % 15) return; minD = Math.min(minD, deepAt(v)); if (v.landed || v.contactTime > 0) bed++; if (v.ai.avoid) avoided++; });
-    const isl = { minD: +minD.toFixed(1), draft: +v.draft.toFixed(2), bed, avoided, at: ez(v) };
+    let minD = Infinity, bed = 0, avoided = 0, way = 0;
+    run(F, 260, (t, f) => { if (f % 15) return; minD = Math.min(minD, deepAt(v)); if (v.landed || v.contactTime > 0) bed++; if (v.ai.avoid) avoided++; if (v.ai.path) way++; });
+    const isl = { minD: +minD.toFixed(1), draft: +v.draft.toFixed(2), bed, avoided, way, at: ez(v) };
     fresh(3); const b2 = park(), F2 = fsim(b2, [b2]);
     const w = Ship.aiSpawn(F2, 'osca', { e: 16000, z: 0, yaw: 0 }, { role: 'fight', skill: 0.5, course: [{ e: 19500, z: 0 }] });
     let minE = Infinity, bed2 = 0, east = 0;
     run(F2, 150, (t, f) => { if (f % 15) return; minE = Math.min(minE, deepAt(w)); if (w.landed || w.contactTime > 0) bed2++; east = Math.max(east, ez(w)[0]); });
     return JSON.stringify({ isl, shet: { minD: +minE.toFixed(1), draft: +w.draft.toFixed(2), bed: bed2, east } }); })()`);
-  t(`land: an Osca sent across the Faroes' main island goes round it (now at ${o.isl.at.join(', ')}), never on the bed, at least ${o.isl.minD} m of water under her (draft ${o.isl.draft} m; ≥ draft + 1)`,
-    o.isl.bed === 0 && o.isl.minD >= o.isl.draft + 1 && o.isl.avoided > 0 && o.isl.at[0] > -1000, o.isl);
+  t(`land: an Osca sent across the Faroes' main island goes round it by sea (her way round planned ${o.isl.way} looks of ${Math.round(260 * 4)}; now at ${o.isl.at.join(', ')}), never on the bed, at least ${o.isl.minD} m of water under her (draft ${o.isl.draft} m; ≥ draft + 1)`,
+    o.isl.bed === 0 && o.isl.minD >= o.isl.draft + 1 && (o.isl.way > 0 || o.isl.avoided > 0) && o.isl.at[0] > -1000, o.isl);
   t(`...one sent straight at Shetland turns off (east at most ${o.shet.east} m, the shore at about 17,900), never on the bed, ${o.shet.minD} m under her at the least (≥ draft + 3)`,
     o.shet.bed === 0 && o.shet.minD >= o.shet.draft + 3 && o.shet.east < 17900, o.shet);
 }
@@ -209,13 +209,13 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
       for (const q of Combat.S.shots) if (q.k === 'bomb' && q.owner === s && !B.some((b) => b.q === q)) B.push({ q, D: dist(s, me), alt: Math.hypot(s.x, s.y, s.z) - EARTH.radius });
       for (const c of me.sh.comps) { c.W = 0; c.holes.length = 0; } for (const p of me.parts) if (p.holes) p.holes.length = 0; // (her holes patched at once: she stays afloat for its second run)
       const alt = Math.hypot(s.x, s.y, s.z) - EARTH.radius, d = dist(s, me);
-      if (f % 30 === 0 && d > 5000 && s.ai.ph === 'in') altIn.push(Math.round(alt));
+      if (f % 30 === 0 && d > 5000 && s.ai.ph === 'in' && !B.length) altIn.push(Math.round(alt)); // (its first run in)
       if (ph[ph.length - 1] !== s.ai.ph) ph.push(s.ai.ph);
     });
     const S = me.sh, land = B.map((b) => { const dx = b.q.x - me.x, dy = b.q.y - me.y, dz = b.q.z - me.z; return Math.round(Math.hypot(dx * S.E.x + dy * S.E.y + dz * S.E.z, dx * S.N.x + dy * S.N.y + dz * S.N.z)); });
     return JSON.stringify({ n: B.length, rel: B.map((b) => Math.round(b.D)), relAlt: B.map((b) => Math.round(b.alt)), land, altIn: [Math.min(...altIn), Math.max(...altIn)], ph, holes: +holeA(me).toFixed(1), dead: !!s.dead }); })()`);
-  t(`a strike aircraft: in at ${o.altIn.join('-')} m, its two bombs let go ${o.rel.join(' and ')} m out at ${o.relAlt.join(' and ')} m up (about 800 m, low), landing ${o.land.join(' and ')} m from the ship's middle (≤ 60: on her), then away and round again (${o.ph.join(' → ')})`,
-    o.n === 2 && o.altIn[0] > 250 && o.altIn[1] < 340 && o.rel.every((d) => d > 450 && d < 1150) && o.relAlt.every((h) => h < 130) && o.land.every((d) => d <= 60) && o.ph.join().startsWith('in,out,in') && !o.dead, o);
+  t(`a strike aircraft: in at ${o.altIn.join('-')} m, one bomb a pass ([WP10 review]: two passes), let go ${o.rel.join(' and ')} m out at ${o.relAlt.join(' and ')} m up (about 800 m, low), landing ${o.land.join(' and ')} m from the ship's middle (≤ 90: on her or close, give or take its error), away and round again between (${o.ph.join(' → ')})`,
+    o.n === 2 && o.altIn[0] > 250 && o.altIn[1] < 340 && o.rel.every((d) => d > 450 && d < 1150) && o.relAlt.every((h) => h < 130) && o.land.every((d) => d <= 90) && o.ph.join().startsWith('in,out,in,out') && !o.dead, o);
 }
 
 // ================================================================ down, the range (§9.2)
@@ -255,9 +255,9 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
     o.rad.every((r) => r > 0.8 && r < 1.2) && Math.abs(o.kn.cyclon - 12) <= 4 && Math.abs(o.kn.osca - 18) <= 4 && Math.abs(o.kn.olivar - 15) <= 4, o);
   t(`...the Osca sunk counts (${o.kos}) and is back 60 s later on her loop's far side (${o.far} m further from the player than its middle)`, o.kos === 1 && o.dead === 1 && o.back === 1 && o.far > 0, o);
 }
-// 14. Hostile: the first wave 20 s in, from the east (10 km east of the player, at most e 16,000), two Cyclons at skill
-// 0.2 coming west at her; sunk, "Wave 1 sunk", the next 30 s later (an Osca and a Cyclon, skill 0.3), and from the second
-// wave a strike aircraft; targets set Off: all of it gone
+// 14. Hostile: the first wave 20 s in, from the east (out of sight beyond the horizon: [WP10 review] 6.5-10.5 km east of
+// the player, in column), two Cyclons at skill 0.2 coming west at her; sunk, "Wave 1 sunk", the next 30 s later (an Osca
+// and a Cyclon, skill 0.3), and from the second wave a strike aircraft; targets set Off: all of it gone
 {
   const o = J(`(() => { fresh(100); Settings.data.targets = 'hostile';
     const me = ship('arley', { e: 6000, z: 0, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true; unarm(me); me.ciws = []; me.parts.forEach((p) => { p.hp = 1e9; });
@@ -280,7 +280,7 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
     const after = { range: !!Ship.naval, ai: Ship.aiShips.length, strikers: F.vessels.filter((v) => v.ai && v.ai.strike && !v.dead).length, on: Ship.aiOn };
     return JSON.stringify({ w0, w1, at, m0, closing, between, sunk, w2, wave, strikers, kos, after }); })()`);
   t(`Hostile: nothing for 20 s (wave ${o.w0}), then ${o.w1.join(', ')} from the east (at ${o.at.map((p) => p.join(',')).join(' and ')}; the player at ${o.m0.join(',')}), coming at her (${o.closing.join(', ')} m nearer in 20 s)`,
-    o.w0 === 0 && o.w1.join() === 'cyclon@0.2,cyclon@0.2' && o.at.every((p) => p[0] >= o.m0[0] + 9000 && p[0] <= 16050) && o.closing[0] > 100 && o.closing[1] > 0, o);
+    o.w0 === 0 && o.w1.join() === 'cyclon@0.2,cyclon@0.2' && o.at.every((p) => p[0] >= o.m0[0] + 6000 && p[0] <= o.m0[0] + 11200 && Math.abs(p[1] - o.m0[1]) < 3000) && o.closing[0] > 100 && o.closing[1] > 0, o);
   t(`...sunk: "Wave 1 sunk" (${o.sunk}), none left (${o.between}); 30 s later wave ${o.wave}: ${o.w2.join(', ')}; then a strike aircraft (${o.strikers}); ${o.kos} counted`,
     o.sunk === 1 && o.between === 0 && o.wave === 2 && o.w2.join() === 'osca@0.3,cyclon@0.3' && o.strikers >= 1 && o.kos === 2, o);
   t(`...Targets set Off: the range, its ships and its aircraft gone (${JSON.stringify(o.after)})`, !o.after.range && o.after.ai === 0 && o.after.strikers === 0 && !o.after.on, o.after);
@@ -320,11 +320,178 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
   t(`...a ship in a room starts no range (${JSON.stringify(o.room)}), nor with targets Off (${JSON.stringify(o.off)}), nor in another suite's stand-in for the flight (${JSON.stringify(o.stand)})`, !o.room.naval && o.room.ai === 0 && !o.off.naval && o.off.ai === 0 && !o.stand.naval && o.stand.ai === 0, o);
 }
 
+// ================================================================ the review's (round 1)
+// 17. Nothing through a friend (§9.1): a Vizby with the player's Olivar 2.5 km off and an Olivar of her own side 1.2 km out
+// on the line between them holds her fire (no round, missile or torpedo of hers meets the friend); the friend moved a
+// kilometre and a half aside, she fires
+{
+  const o = J(`(() => { const out = {};
+    for (const aside of [0, 1500]) { fresh(1500); const me = ship('olivar', { e: 9000, z: -2500, yaw: 0 }), F = fsim(me, [me]); unarm(me); me.ciws = []; me.parts.forEach((p) => { p.hp = 1e9; });
+      const v = Ship.aiSpawn(F, 'vizby', { e: 9000, z: 0, yaw: 0 }, { role: 'fight', skill: 0.5 }); unarm(v, (w) => w.asm);
+      const fr = Ship.aiSpawn(F, 'olivar', { e: 9000 + aside, z: -1200, yaw: 0 }, { role: 'fight', skill: 0.5 }); unarm(fr); fr.ciws = []; fr.ai.born = Infinity; fr.parts.forEach((p) => { p.hp = 1e9; });
+      let hits = 0, last = fr.lastHitAt; const mine = new Set();
+      run(F, 30, () => { for (const s of Combat.S.shots) if (s.owner === v) mine.add(s); if (fr.lastHitAt !== last) { last = fr.lastHitAt; if (fr.lastHitBy === v) hits++; } }, true);
+      out[aside] = { foe: Ship.foe(v, fr), fired: mine.size, hits, holes: fr.parts.reduce((q, p) => q + (p.holes ? p.holes.length : 0), 0) }; }
+    return JSON.stringify(out); })()`);
+  t(`friends: a Vizby with a ship of her own side on her line of fire holds it (${o[0].fired} shots, ${o[0].hits} hits on the friend, ${o[0].holes} holes); with the friend 1.5 km aside she fires (${o[1500].fired} shots)`,
+    !o[0].foe && o[0].hits === 0 && o[0].holes === 0 && o[0].fired === 0 && o[1500].fired > 0, o);
+}
+// 18. Her SAMs keep their one fire-control channel (her tracking radar guides the SAM in the air): two of the player's
+// anti-ship missiles 3 s apart at an Arley Berk (her SAMs alone): she engages one at a time and kills at least one
+const o18 = J(`(() => { const out = [];
+  for (const seed of [1, 2]) {
+    fresh(1400 + seed); const me = ship('osca', { e: 9000, z: -7000, yaw: 0 }), F = fsim(me, [me]); me.parts.forEach((p) => { p.hp = 1e9; });
+    const ar = Ship.aiSpawn(F, 'arley', { e: 9000, z: 0, yaw: Math.PI / 2 }, { role: 'fight', skill: 0.9 }); unarm(ar, (w) => !w.vls); ar.ciws = []; ar.ai.born = Infinity; ar.parts.forEach((p) => { p.hp = 1e9; });
+    run(F, 6, null, true);
+    const M = [];
+    for (let i = 0; i < 2; i++) { const m = Ship.asmAt(me, ar, F); if (m) M.push(m); run(F, 3, null, true); }
+    const sams = new Set(); let lk = null, sw = 0;
+    run(F, 40, () => { for (const s of Combat.S.shots) if (s.owner === ar && s.k === 'missile') sams.add(s); const L = ar.trk && ar.trk.lock; if (L !== lk) { lk = L; sw++; } }, true);
+    out.push({ asm: M.length, sams: sams.size, kills: M.filter((m) => m.killedBy === ar).length, switches: sw });
+  }
+  return JSON.stringify(out); })()`);
+t(`SAMs: two missiles in at an Arley Berk, her one fire-control channel on one at a time: ${o18.map((r) => `${r.sams} SAMs, ${r.kills} of ${r.asm} killed, ${r.switches} locks`).join('; ')} (at least one killed, no lock taken off a SAM in the air: ≤ 4 locks)`,
+  o18.every((r) => r.asm === 2 && r.kills >= 1 && r.switches <= 4), o18);
+// 19. Practice targets never fire: the loops' and the hulk's close-in guns off. A hulk put out of action comes back only
+// where nothing lies (her wreck still afloat: elsewhere, 700 m off), and never on the player's ship parked on its spot
+{
+  const o = J(`(() => { fresh(1200); Settings.data.targets = 'practice';
+    const me = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true;
+    run(F, 2);
+    const ciws = Ship.aiShips.map((v) => v.sh.ciwsOn);
+    const h = Ship.aiShips.find((v) => v.ai.role === 'passive'); h.lastHitBy = me; Ship.doom(h, F, 'action', me);
+    run(F, 62);
+    const h2 = Ship.aiShips.find((v) => v.ai.role === 'passive' && v !== h), d1 = h2 ? Math.round(dist(h, h2)) : null, oldUp = Math.round(Math.hypot(h.x, h.y, h.z) - EARTH.radius);
+    // (the player parked on the hulk's spot, the hulk sunk again: the next comes elsewhere)
+    fresh(1201); Settings.data.targets = 'practice';
+    const H = EARTH.navalRange.hulk, me2 = ship('cyclon', { e: H.e + 20, z: H.z, yaw: 0 }), F2 = fsim(me2, [me2]); F2.navalRange = true;
+    run(F2, 2);
+    const g = Ship.aiShips.find((v) => v.ai.role === 'passive');
+    return JSON.stringify({ ciws, d1, oldUp, d2: g ? Math.round(dist(g, me2)) : null }); })()`);
+  t(`Practice: none of its targets' close-in guns is on (${o.ciws.join(', ')}); the hulk back 60 s later ${o.d1} m from the old one still afloat (${o.oldUp} m) (≥ 200), and ${o.d2} m from the player's ship parked on its spot (≥ 200)`,
+    o.ciws.every((c) => !c) && o.d1 != null && o.d1 >= 200 && o.d2 != null && o.d2 >= 200, o);
+}
+// 20. Where a Hostile wave comes in: out of sight (no ship of it sees her, nor she it, by the horizon), 6.5-10.5 km off, from
+// the east where the sea allows (dead east from the slipway; Shetland in the way at e 14,000: from its south-east), with a
+// way by sea to her; the toast names where from and how far. From the slipway, at e 14,000, off Shetland's harbour, east
+// of Shetland and in the bay west of the Faroes' main island
+{
+  const o = J(`(() => { const out = [];
+    for (const [id, e, z] of [['slipway', 3540, 0], ['e14k', 14000, 0], ['shetland', 17420, 150], ['eastShet', 23600, 0], ['bay', -2300, 0]]) {
+      fresh(600); Settings.data.targets = 'hostile';
+      const me = ship('cyclon', { e, z, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true; unarm(me); me.parts.forEach((p) => { p.hp = 1e9; });
+      run(F, 21.5);
+      const W = Ship.naval ? Ship.naval.left : [], m = ez(me), L = W[0], P = L ? ez(L) : null;
+      const sees = W.some((v) => Ship._ai.seaSeen(v, F).includes(me)), way = L && Ship._ai.navOn() ? Ship._ai.navPath({ e: P[0], z: P[1] }, { e: m[0], z: m[1] }) : null;
+      out.push({ id, n: W.length, d: L ? Math.round(dist(L, me)) : null, east: P ? P[0] - m[0] : null, brg: P ? Math.round(Math.atan2(P[0] - m[0], -(P[1] - m[1])) * 180 / Math.PI) : null, sees, way: !!way, toast: F.toasts.filter((q) => /^Wave 1/.test(q))[0] || '' });
+    }
+    return JSON.stringify(out); })()`);
+  for (const r of o) t(`a wave's coming in (${r.id}): ${r.n} ships ${r.d} m off at ${r.brg}° (east ${r.east} m), out of sight (${!r.sees}), a way by sea to her (${r.way}): "${r.toast}"`,
+    r.n === 2 && r.d >= 6400 && r.d <= 10600 && !r.sees && r.way && (r.id === 'eastShet' || r.id === 'shetland' ? true : r.east > 0) && (r.id === 'slipway' ? Math.abs(r.brg - 90) <= 25 : true) && /from the (north|south|east|west|north-east|north-west|south-east|south-west), [\d,]+ m off/.test(r.toast), r);
+}
+// 21. Round the island: the player's Cyclon in the bay west of the Faroes' main island, Hostile: wave 1 comes round the
+// island by sea (never on the bed), at Flank, and sees her within 6 minutes
+{
+  const o = J(`(() => { fresh(610); Settings.data.targets = 'hostile';
+    const me = ship('cyclon', { e: -2300, z: 0, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true; unarm(me); me.parts.forEach((p) => { p.hp = 1e9; });
+    run(F, 21.5);
+    const W = Ship.naval.left.slice(), d0 = Math.round(dist(W[0], me)); let bed = 0, seen = null, minD = Infinity;
+    run(F, 360, (t, f) => { if (f % 30) return; for (const v of W) { if (v.landed || v.contactTime > 0) bed++; minD = Math.min(minD, deepAt(v)); } if (seen == null && W.some((v) => v.ai.seen && v.ai.tgt === me)) seen = Math.round(t); if (seen != null) return false; });
+    return JSON.stringify({ d0, seen, bed, minD: +minD.toFixed(1), d: W.map((v) => Math.round(dist(v, me))), st: W.map((v) => v.ai.state) }); })()`);
+  t(`round the island: from the bay, wave 1 comes in ${o.d0} m off and round the Faroes' main island by sea (never on the bed: ${o.bed}; ${o.minD} m under her at least), sighting her ${o.seen} s later (≤ 360; now ${o.d.join(', ')} m off, ${o.st.join(', ')})`,
+    o.bed === 0 && o.seen != null && o.seen <= 360, o);
+}
+// 22. A retreat to open water: an Olivar Perri fighting a Cyclon to the east with the Faroes' main island at her back
+// loses two thirds of her crew: she retreats at Flank round the island's end, never on the bed, and isn't left stuck
+{
+  const o = J(`(() => { fresh(620); const me = ship('cyclon', { e: 10500, z: 400, yaw: Math.PI }), F = fsim(me, [me]); unarm(me); me.parts.forEach((p) => { p.hp = 1e9; });
+    const v = Ship.aiSpawn(F, 'olivar', { e: 6000, z: 400, yaw: 0 }, { role: 'fight', skill: 0.5 }); unarm(v); v.ciws = [];
+    run(F, 8);
+    const C = Armour.crewOf(v); let k = 0; for (const e of C.crew) if (k++ % 3) { if (e.i >= 0) { e.host.mods = e.host.mods || []; e.host.mods[e.i] = 0; } else e.part.broken = true; }
+    let bed = 0, minD = Infinity, slow = 0; const kn = [];
+    run(F, 360, (t, f) => { if (f % 30) return; if (v.landed || v.contactTime > 0) bed++; minD = Math.min(minD, deepAt(v)); if (t > 60 && v.speed() < 2) slow++; if (f % 1800 === 0) kn.push(+(v.speed() * SHIP.KN).toFixed(1)); });
+    return JSON.stringify({ state: v.ai.state, bed, slow, minD: +minD.toFixed(1), at: ez(v), kn }); })()`);
+  t(`a retreat to open water: an Olivar Perri with the Faroes' main island at her back retreats (${o.state}) to ${o.at.join(', ')}, never on the bed (${o.bed}), ${o.minD} m under her at least, never stopped (${o.slow} slow looks; ${o.kn.join(', ')} kn)`,
+    o.state === 'retreat' && o.bed === 0 && o.slow === 0 && o.minD > 8, o);
+}
+// 23. The old target range's two bandits are its own: the Naval Range's strike aircraft don't take their places
+// (old-1); a 30 mm at a ship fires only within 0.8 of its reach, and in bursts (its 300 rounds last the fight)
+{
+  const o = J(`(() => { fresh(630); Settings.data.targets = 'hostile';
+    const me = ship('arley', { e: 6000, z: 0, yaw: 0 }), F = fsim(me, [me]); unarm(me); me.ciws = []; me.parts.forEach((p) => { p.hp = 1e9; }); // (no Naval Range: the old range alone, with two strike aircraft up)
+    Ship.spawnStriker(F); Ship.spawnStriker(F);
+    let old = 0; const seen = new Set();
+    run(F, 60, () => { for (const q of F.vessels) if (Combat.isFighter(q) && !q.ai.strike && !q.dead) seen.add(q); });
+    const strikers = F.vessels.filter((q) => q.ai && q.ai.strike && !q.dead).length;
+    const out = { bandits: seen.size, strikers };
+    for (const D of [2300, 1700]) {
+      fresh(640); const tg = ship('cyclon', { e: 9000, z: -D / 2, yaw: 0 }), G = fsim(tg, [tg]); unarm(tg); tg.parts.forEach((p) => { p.hp = 1e9; });
+      const v = Ship.aiSpawn(G, 'cyclon', { e: 9000, z: D / 2, yaw: Math.PI }, { role: 'fight', skill: 0.2 });
+      const g = v.parts.find((p) => p.type === 'ac30'), a0 = g.ammo; let on = 0, n = 0;
+      run(G, 60, (t, f) => { if (f % 15 === 0) { n++; if (v.aimFire) on++; } }, true);
+      out[D] = { used: a0 - g.ammo, duty: +(on / n).toFixed(2) };
+    }
+    return JSON.stringify(out); })()`);
+  t(`the old range keeps its own bandits with two strike aircraft up (${o.bandits} of its own came; ${o.strikers} strike aircraft)`, o.bandits >= 1 && o.strikers === 2, o);
+  t(`bursts: a Cyclon's 30 mm at a ship 2.3 km off holds its fire (${o[2300].used} rounds in 60 s); at 1.7 km it fires in bursts (${o[1700].used} rounds, the trigger down ${Math.round(o[1700].duty * 100)} % of the time: ≤ 50 %)`,
+    o[2300].used === 0 && o[1700].used > 0 && o[1700].duty <= 0.5 && o[1700].used < 300, o);
+}
+// 24. The end screen's tally (Flight.summaryHTML): the Naval Range's ships sunk and best shot; the range's memory of the sunk
+// let go (R.mine: only what is still in the flight)
+{
+  const o = J(`(() => { fresh(650); Settings.data.targets = 'hostile';
+    const me = ship('arley', { e: 6000, z: 0, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true; unarm(me); me.ciws = []; me.parts.forEach((p) => { p.hp = 1e9; });
+    run(F, 22);
+    const W = Ship.naval.left.slice(); for (const v of W) { v.lastHitBy = me; Ship.doom(v, F, 'sunk', me); }
+    run(F, 2); const mine0 = Ship.naval.mine.size;
+    for (const v of W) v.dead = true; // (gone under: the flight lets them go)
+    run(F, 2);
+    const mine1 = Ship.naval.mine.size, live = F.vessels.filter((v) => Ship.naval.mine.has(v)).length;
+    Ship.naval.best = 6200; Flight.active = me; Flight.time = 600; Flight.driven = 5000; Flight.stats = { maxSpeed: 15 }; Flight.fresh = {};
+    const html = Flight.summaryHTML('', true), plain = (() => { Flight.active = park(); return Flight.summaryHTML('', true); })();
+    return JSON.stringify({ mine0, mine1, live, row: (html.match(/Ships sunk<\\/dt><dd>[^<]*/) || [''])[0], other: /Ships sunk/.test(plain) }); })()`);
+  t(`the end screen: "${o.row.replace(/<[^>]+>/g, ' ')}" (none for another craft: ${!o.other}); the range lets the sunk go (${o.mine0} → ${o.mine1}, ${o.live} still in the flight)`,
+    /Ships sunk.*2 · best shot/.test(o.row) && !o.other && o.mine1 === o.live && o.mine1 < o.mine0, o);
+}
+// 25. A wave never comes in on the last one's wrecks: waves 1 and 2 put out of action where they appear (their hulks
+// afloat for a minute before they are scuttled), wave 3 comes in clear of them (≥ 200 m from each) and 20 s on neither
+// of its ships has come to grief
+{
+  const o = J(`(() => { fresh(660); Settings.data.targets = 'hostile';
+    const me = ship('arley', { e: 6000, z: 0, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true; unarm(me); me.ciws = []; me.parts.forEach((p) => { p.hp = 1e9; });
+    const old = []; let guard = 0;
+    while ((!Ship.naval || Ship.naval.wave < 3) && guard++ < 400) { run(F, 1); if (Ship.naval) for (const v of Ship.naval.left.slice()) if (v.ai.wave < 3) { old.push(v); v.lastHitBy = me; Ship.doom(v, F, 'action', me); } }
+    const W = Ship.naval.left.slice(), afloat = old.filter((v) => !v.dead && Math.hypot(v.x, v.y, v.z) - EARTH.radius > -20);
+    const near = Math.round(Math.min(...W.flatMap((w) => afloat.map((v) => dist(v, w)))));
+    run(F, 20);
+    return JSON.stringify({ wave: W.map((v) => v.ai.wave), afloat: afloat.length, near, fates: W.map((v) => v.fate || null) }); })()`);
+  t(`a new wave clear of the last one's wrecks: wave 3 comes in ${o.near} m from the nearest of ${o.afloat} still afloat (≥ 200), and 20 s on its ships are whole (${o.fates.join(', ')})`,
+    o.wave.every((w) => w === 3) && o.afloat > 0 && o.near >= 200 && o.fates.every((f) => f === null), o);
+}
+
+// 26. The time warp (the review's play-1 and play-4): the range holds it at 1× only while a Hostile wave's ship is within
+// 4 km of her or has her in its weapons' reach (or a strike aircraft is within 12 km). Practice never holds it; a wave
+// just come in off the slipway (out of sight, beyond its 30 mm's reach) leaves it to her, also once it has seen her; it
+// is held once the wave closes inside 4 km
+{
+  const o = J(`(() => { fresh(670); Settings.data.targets = 'practice';
+    const me = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true; unarm(me); me.parts.forEach((p) => { p.hp = 1e9; });
+    run(F, 5); const practice = { on: !!Ship.naval, held: Ship._ai.enemyNear(F) };
+    fresh(671); Settings.data.targets = 'hostile';
+    const m2 = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), G = fsim(m2, [m2]); G.navalRange = true; unarm(m2); m2.parts.forEach((p) => { p.hp = 1e9; });
+    run(G, 21.5); const W = Ship.naval.left.slice(), d0 = Math.round(dist(W[0], m2)), at0 = Ship._ai.enemyNear(G);
+    let seenAt = null, seenHeld = false, heldAt = null, heldD = null;
+    run(G, 400, (t, f) => { if (f % 15) return; const held = Ship._ai.enemyNear(G);
+      if (seenAt == null && W.some((v) => v.ai.seen && v.ai.tgt === m2)) { seenAt = +t.toFixed(1); seenHeld = held; }
+      if (held) { heldAt = +t.toFixed(1); heldD = Math.round(Math.min(...W.map((v) => dist(v, m2)))); return false; } });
+    return JSON.stringify({ practice, d0, at0, seenAt, seenHeld, heldAt, heldD }); })()`);
+  t(`the time warp: Practice never holds it (${JSON.stringify(o.practice)}); Hostile, wave 1 in ${o.d0} m off leaves it (${!o.at0}), seeing her ${o.seenAt} s later still leaves it (${!o.seenHeld}), and it is held ${o.heldAt} s in, the nearest ${o.heldD} m off (≤ 4,000)`,
+    o.practice.on && !o.practice.held && !o.at0 && o.seenAt != null && !o.seenHeld && o.heldAt > o.seenAt && o.heldD <= 4000 && o.heldD > 3000, o);
+}
+
 // ================================================================ the cost (§15)
 // 16. Think (4 a second): ≤ 0.1 ms a ship (an Arley Berk fighting an Olivar 6 km off; asserted at 2×, as other suites
-// share the machine); the look: exactly 9 heightAt; a Hostile wave (the player's Arley and three computer's ships 4.5 km
-// off, the physics' LOD on them): each vessel's physics timed in the same loop (the machine's load the same for all),
-// reported a second of the sim, and an Olivar 4.5 km off against one 800 m off (the LOD's saving)
+// share the machine); the look: exactly 9 heightAt
 {
   const o = J(`(() => { fresh(120); const me = ship('olivar', { e: 9000, z: -3000, yaw: 0 }), F = fsim(me, [me]);
     const v = Ship.aiSpawn(F, 'arley', { e: 9000, z: 3000, yaw: Math.PI }, { role: 'fight', skill: 0.5 });
@@ -334,18 +501,42 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
     TT.sort((x, y) => x - y); const think = TT.slice(0, 720).reduce((q, x) => q + x, 0) / 720; // (the slowest tenth left out: a garbage collection lands on whichever think runs then)
     const h = Terrain.heightAt; let n = 0; Terrain.heightAt = function (...a) { n++; return h.apply(this, a); };
     for (let i = 0; i < 10; i++) Ship._ai.look(v, F); Terrain.heightAt = h;
-    fresh(121); const pl = ship('arley', { e: 9000, z: 0, yaw: 0 }), G = fsim(pl, [pl]); pl.sh.tel = 2;
-    const ships = ['vizby', 'osca', 'olivar'].map((k, i) => Ship.aiSpawn(G, k, { e: 13500, z: -1500 + i * 1500, yaw: Math.PI }, { role: 'fight', skill: 0.4 }));
-    const near = Ship.aiSpawn(G, 'olivar', { e: 9000, z: 800, yaw: 0 }, { role: 'fight', skill: 0.4 });
-    for (const s of [...ships, near]) s.sh.tel = 2;
-    const ms = new Map(), step = (secs, keep) => { for (let i = 0; i < secs * 120; i++) { for (const o of G.vessels) { if (o.dead || o.moored) continue; const a = __hr(); o.physicsStep(1 / 120, G); if (keep) { if (!ms.has(o)) ms.set(o, []); ms.get(o).push(__hr() - a); } } G.time += 1 / 120; } };
-    step(3, false); step(10, true);
-    // (ms a second of the sim: each step's time, the slowest tenth left out (a garbage collection lands on whoever steps then))
-    const per = (o) => { const L = (ms.get(o) || [0]).slice().sort((x, y) => x - y), k = Math.max(1, Math.floor(L.length * 0.9)); return (L.slice(0, k).reduce((q, x) => q + x, 0) / k) * 120; };
-    const alone = per(pl), wave = alone + ships.reduce((s, o) => s + per(o), 0);
-    return JSON.stringify({ think: +think.toFixed(4), looks: n / 10, alone: +alone.toFixed(1), wave: +wave.toFixed(1), far: +per(ships[2]).toFixed(1), near: +per(near).toFixed(1), each: ships.map((o) => +per(o).toFixed(1)) }); })()`);
+    return JSON.stringify({ think: +think.toFixed(4), looks: n / 10, state: v.ai.state }); })()`);
   t(`cost: a think ${(o.think * 1000).toFixed(0)} µs (≤ 100; asserted at 2×: the machine is shared), a look ${o.looks} heightAt (9)`, o.think <= 0.2 && o.looks === 9, o);
-  t(`...a Hostile wave's physics: ${o.wave} ms a second of the sim for the player's Arley (${o.alone}) and three computer's ships 4.5 km off (${o.each.join(', ')}): ${(o.wave / 10).toFixed(1)} % of this core (§15: 1.5 % of a desktop's; reported); an Olivar 4.5 km off ${o.far} ms, 800 m off ${o.near} (the LOD: ≤ 0.85×)`,
-    o.far <= 0.85 * o.near, o);
+}
+// 16b. A Hostile wave's physics (§15: the player and three computer's ships with the LOD, ≤ 1.5 % of a desktop core: 15 ms
+// a second of the sim): the player's Arley Berk at Half and a Vizby, an Osca and an Olivar 4.5 km off, timed in a plain
+// script as the page runs it (the test VM's globals cost several times a page's: ships.test 12), in CPU time (a loaded
+// machine's waiting left out), the best of three runs of 10 s of the sim; asserted at 2× (a slow, shared machine), as
+// ships.test's Ship.forces check is. The player's Arley alone the same way. And the LOD: an Olivar 4.5 km off against one
+// 800 m off, each step timed in the same loop (the slowest tenth left out); the far ships' speeds under it as under the
+// every-other-step LOD (SHIP.LOD_AI 2: what a computer's ship had before), within 2 %
+{
+  const fs = require('fs'), path = require('path'), src = (f) => fs.readFileSync(path.join(G.ROOT, 'js', f), 'utf8'), b = src('builder.js');
+  const code = [src('util.js').replace(/const \$ =[\s\S]*$/, ''), src('space.js'), src('terrain.js'), `Terrain.setEarthData(require(${JSON.stringify(path.join(G.ROOT, 'test/lib/earth.js'))}).layers());`,
+    src('parts.js'), src('vessel.js'), src('gear.js'), src('aim.js'), src('armour.js'), src('drone.js'), src('ship.js'),
+    b.match(/const TEMPLATES = \{[\s\S]*?\n\};/)[0], b.match(/function templateRows\(t\) \{[\s\S]*?\n\}/)[0], `
+    const mk = (key, e, z, yaw, ai) => { const rows = templateRows(TEMPLATES[key]).map((r) => ({ ...r })), parts = partsFromDesign(rows), adjAll = buildAdjacency(parts), ctrl = findControlPart(parts), keep = componentOf(ctrl.id, adjAll);
+      const ps = parts.filter((p) => keep.has(p.id)), adj = new Map(); for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
+      const v = new Vessel(ps, adj, EARTH); v.kind = 'ship'; v.name = key; v.stages = []; v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, e), 0, z, yaw); Ship.launch(v, { e, z, yaw }); v.sh.tel = 2; if (ai) v.ai = { sea: true }; return v; };
+    const cpu = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+    const pl = mk('arley', 9000, 0, 0), ships = ['vizby', 'osca', 'olivar'].map((k, i) => mk(k, 13500, -1500 + i * 1500, Math.PI, true)), near = mk('olivar', 9000, 800, 0, true);
+    const L = [pl, ...ships], F = { time: 0, active: pl, vessels: L, toast() {}, ripParts() {}, breakParts() {} };
+    const hr = () => Number(process.hrtime.bigint()) / 1e6;
+    const step = (list, secs, per) => { for (let i = 0; i < secs * 120; i++) { for (const o of list) { const a = per ? hr() : 0; o.physicsStep(1 / 120, F); if (per) { if (!per.has(o)) per.set(o, []); per.get(o).push(hr() - a); } } F.time += 1 / 120; } };
+    step(L, 5);
+    const reps = []; for (let r = 0; r < 3; r++) { const a = cpu(); step(L, 10); reps.push((cpu() - a) / 10); }
+    const kn = L.map((o) => +(o.speed() * 1.943844).toFixed(2));
+    const alone = []; F.vessels = [pl]; for (let r = 0; r < 3; r++) { const a = cpu(); step([pl], 5); alone.push((cpu() - a) / 5); }
+    // (ms a second of the sim from each step's time, the slowest tenth left out: a garbage collection lands on whoever steps then)
+    F.vessels = [pl, ships[2], near]; const per = new Map(); step(F.vessels, 3); step(F.vessels, 10, per);
+    const ms = (o) => { const q = per.get(o).slice().sort((x, y) => x - y), k = Math.floor(q.length * 0.9); return (q.slice(0, k).reduce((s, x) => s + x, 0) / k) * 120; };
+    // (the same three under the every-other-step LOD, from the same start: their speeds 35 s on)
+    SHIP.LOD_AI = 2; const old = ['vizby', 'osca', 'olivar'].map((k, i) => mk(k, 13500, -1500 + i * 1500, Math.PI, true)), pl2 = mk('arley', 9000, 0, 0);
+    F.active = pl2; F.vessels = [pl2, ...old]; F.time = 0; step(F.vessels, 35);
+    console.log(JSON.stringify({ wave: +Math.min(...reps).toFixed(1), reps: reps.map((x) => +x.toFixed(1)), alone: +Math.min(...alone).toFixed(1), far: +ms(ships[2]).toFixed(1), near: +ms(near).toFixed(1), kn, kn2: [pl2, ...old].map((o) => +(o.speed() * 1.943844).toFixed(2)) }));`].join('\n;\n');
+  const o = JSON.parse(require('child_process').execFileSync(process.execPath, ['-'], { input: code, encoding: 'utf8', maxBuffer: 1 << 24 }).trim().split('\n').pop());
+  t(`...a Hostile wave's physics: ${o.wave} ms a second of the sim (${(o.wave / 10).toFixed(2)} % of this core; runs ${o.reps.join(', ')}) for the player's Arley (alone ${o.alone}) and three computer's ships 4.5 km off (§15: 15 ms, 1.5 % of a desktop core; asserted at 2×); an Olivar 4.5 km off ${o.far} ms, 800 m off ${o.near} (the LOD: ≤ 0.85×); the far ships at ${o.kn.slice(1).join(', ')} kn, ${o.kn2.slice(1).join(', ')} under the old LOD (within 2 %)`,
+    o.wave <= 30 && o.far <= 0.85 * o.near && o.kn.every((k, i) => Math.abs(k - o.kn2[i]) <= 0.02 * o.kn2[i] + 0.05), o);
 }
 t.done();

@@ -1,11 +1,14 @@
 // The Naval Range (the ships update, WP10: spec §9.1, §9.2), in the game as a player meets it:
 //  - Practice (Settings → Targets: Practice), the Arley Berk launched from the hangar off the slipway (Spawns): within a
-//    second the bar ("Naval Range: 0 sunk", "Practice · they don't shoot back"), the hulk moored 2 km ahead and three
-//    ships steaming their loops; her 127 mm through the gunner's sight on the hulk, FIRE held, until it sinks: SUNK, the
-//    bar's "1 sunk" and the best shot (ships held to their own physics: nothing scripted but the aim);
-//  - Hostile, her bow east 2 km short of the waves' line (Flight.start at a sea place): "the first ships come from the
-//    east", the first wave 20 s in, two Cyclons that close and fight; she survives 60 s of Flight.time with her own guns,
-//    CIWS and the computer's ships' fire about her; the bar's wave and ships left;
+//    second the bar ("Naval Range: 0 sunk", "Practice · they don't shoot back") under the time warp, which still works
+//    ([WP10 review]: the warp is held only while a Hostile wave is on her), the hulk moored 2 km ahead and three ships
+//    steaming their loops; her 127 mm through the gunner's sight on the hulk, FIRE held, until it sinks: SUNK, the bar's
+//    "1 sunk" and the best shot (ships held to their own physics: nothing scripted but the aim);
+//  - Hostile, her bow east in open water (Flight.start at a sea place), the waves brought in 2.5-3 km off (SHIP.NRANGE.spawn,
+//    the test's: out of sight they come 7-8 km off, minutes away at the headless sim's pace): the first wave 20 s in, two
+//    Cyclons from the east that close and fight, the warp held at 1× with them on her and the bar in its place; she
+//    survives 60 s of Flight.time with her own guns, CIWS and the computer's ships' fire about her; the bar's wave and
+//    ships left;
 //  - on a phone in portrait (390×844) and a desktop (1280×720): the bar on the screen, clear of the helm panel and the
 //    minimap, screenshots (naval-*.png) to look at; no console errors (App.frame swallows them).
 // Times on Flight.time (headless Chromium runs the sim at about 0.08× real time: the drawing is off while waiting,
@@ -64,9 +67,9 @@ async function sail(page, place) {
 // the bar: its text, on the screen, clear of the helm panel's box and the minimap's
 const barOf = (page) => page.evaluate(() => {
   const q = (s) => document.querySelector(s), box = (e) => { if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).display !== 'none' ? r : null; };
-  const B = box(q('#naval-bar')), H = box(q('#ship-helm')), M = box(q('.gmap')), W = innerWidth, Hh = innerHeight;
+  const B = box(q('#naval-bar')), H = box(q('#ship-helm')), M = box(q('.gmap')), Wp = box(q('#warp')), W = innerWidth, Hh = innerHeight;
   const over = (a, c) => !!a && !!c && a.left < c.right - 1 && c.left < a.right - 1 && a.top < c.bottom - 1 && c.top < a.bottom - 1;
-  return { shown: !!B, text: B ? q('#naval-bar').innerText.replace(/\s+/g, ' ').trim() : '', inside: !!B && B.left >= 0 && B.top >= 0 && B.right <= W && B.bottom <= Hh, helm: over(B, H), map: over(B, M), warp: !!q('#warp') && !q('#warp').hidden };
+  return { shown: !!B, text: B ? q('#naval-bar').innerText.replace(/\s+/g, ' ').trim() : '', inside: !!B && B.left >= 0 && B.top >= 0 && B.right <= W && B.bottom <= Hh, helm: over(B, H), map: over(B, M), warp: !!q('#warp') && !q('#warp').hidden, wover: over(B, Wp) };
 });
 
 for (const vp of [[1280, 720, false], [390, 844, true]]) {
@@ -79,8 +82,12 @@ for (const vp of [[1280, 720, false], [390, 844, true]]) {
       window.__hulk = hulk; return { mode: R && R.mode, ships, d: hulk ? Math.round(Math.hypot(hulk.x - Flight.active.x, hulk.y - Flight.active.y, hulk.z - Flight.active.z)) : 0 }; });
     const bar0 = await barOf(page);
     await frames(page, 3); await shot(page, `practice-start-${sz}`);
-    ok(`${tag}Practice: the range on (${set.ships.join(', ')}), the hulk ${set.d} m ahead, the bar "${bar0.text}" on the screen (clear of the helm and the minimap, the time warp hidden)`,
-      set.mode === 'practice' && set.ships.length === 4 && set.d > 1500 && set.d < 2600 && bar0.shown && bar0.inside && !bar0.helm && !bar0.map && !bar0.warp && /Naval Range: 0 sunk/.test(bar0.text) && /Practice/.test(bar0.text), { set, bar0 });
+    // ([WP10 review]) the time warp shown over the bar, and working: '.' (the warp-up key) puts it to 2×, held 3 s later
+    const warp = await page.evaluate(() => ({ w0: Flight.warpIdx }));
+    await page.keyboard.press('Period'); await page.waitForTimeout(150);
+    Object.assign(warp, await page.evaluate(async () => { const k1 = Flight.warpIdx; await window.__simWait(3); const k2 = Flight.warpIdx; Flight.setWarp(0); return { k1, k2 }; }));
+    ok(`${tag}Practice: the range on (${set.ships.join(', ')}), the hulk ${set.d} m ahead, the bar "${bar0.text}" on the screen (clear of the helm, the minimap and the time warp, which shows and works: ${warp.w0} → ${warp.k1}, ${warp.k2} 3 s later)`,
+      set.mode === 'practice' && set.ships.length === 4 && set.d > 1500 && set.d < 2600 && bar0.shown && bar0.inside && !bar0.helm && !bar0.map && bar0.warp && !bar0.wover && warp.k1 === 1 && warp.k2 === 1 && /Naval Range: 0 sunk/.test(bar0.text) && /Practice/.test(bar0.text), { set, bar0, warp });
     // her 127 mm on it through the sight, FIRE held until it goes down (the aim put back on it every few seconds: it bobs)
     const sunk = await page.evaluate(async () => { const v = Flight.active, h = window.__hulk; window.__sel('nGun127'); Flight.setSight(true, 6); await window.__aimAt(h);
       Flight.touchFire = true; const t0 = Flight.time;
@@ -99,10 +106,11 @@ for (const vp of [[1280, 720, false], [390, 844, true]]) {
   // ---- Hostile: a wave survived for 60 s
   {
     const { ctx, page } = await open(vp, tag + 'hostile ', { targets: 'hostile' });
-    await sail(page, { e: 14000, z: -1100, yaw: 0 });
-    const set = await page.evaluate(async () => { await window.__simWait(1.5); return { mode: Ship.naval && Ship.naval.mode, toasts: [...document.querySelectorAll('.toast')].map((e) => e.textContent).join(' | ') }; });
+    await sail(page, { e: 10000, z: -1100, yaw: 0 });
+    const set = await page.evaluate(async () => { SHIP.NRANGE.spawn = [2500, 3000]; await window.__simWait(1.5); return { mode: Ship.naval && Ship.naval.mode, toasts: [...document.querySelectorAll('.toast')].map((e) => e.textContent).join(' | ') }; });
     const bar0 = await barOf(page);
-    const wave = await page.evaluate(async () => { await window.__until(() => Ship.naval && Ship.naval.left.length > 0, 30); const L = Ship.naval.left; return { wave: Ship.naval.wave, ships: L.map((v) => v.ai.key + '@' + v.ai.skill.toFixed(1)), d: L.map((v) => Math.round(Math.hypot(v.x - Flight.active.x, v.y - Flight.active.y, v.z - Flight.active.z))), t: Flight.time }; });
+    const wave = await page.evaluate(async () => { await window.__until(() => Ship.naval && Ship.naval.left.length > 0, 30); await window.__simWait(1); const L = Ship.naval.left, me = Flight.active;
+      return { wave: Ship.naval.wave, ships: L.map((v) => v.ai.key + '@' + v.ai.skill.toFixed(1)), d: L.map((v) => Math.round(Math.hypot(v.x - me.x, v.y - me.y, v.z - me.z))), east: L.map((v) => Math.round(Ship._ai.ezOf(v, {}).e - Ship._ai.ezOf(me, {}).e)), t: Flight.time, warpHeld: document.querySelector('#warp').hidden, toast: [...document.querySelectorAll('.toast')].map((e) => e.textContent).filter((x) => /^Wave 1/.test(x))[0] || '' }; });
     // 60 s of the wave: she holds her ground (Half ahead, the heading held) and fights with her guns and CIWS on the aim
     // nearest her, as a player would; a picture once they are firing
     const fight = await page.evaluate(async () => { const v = Flight.active, L = Ship.naval.left.slice(); Ship.setTel(v, 2); window.__sel('nGun127'); const t0 = Flight.time; let fired = 0, seenAt = null;
@@ -119,8 +127,8 @@ for (const vp of [[1280, 720, false], [390, 844, true]]) {
     await page.evaluate(async () => { await window.__simWait(0.6, true); });
     const bar1 = await barOf(page);
     await shot(page, `hostile-${sz}`);
-    ok(`${tag}Hostile: the range on, the bar "${bar0.text}" (clear of the helm and the minimap); wave ${wave.wave} (${wave.ships.join(', ')}) ${wave.d.join(' and ')} m off at ${wave.t.toFixed(0)} s`,
-      set.mode === 'hostile' && bar0.shown && bar0.inside && !bar0.helm && !bar0.map && /Hostile/.test(bar0.text) && wave.wave === 1 && wave.ships.join() === 'cyclon@0.2,cyclon@0.2', { set, bar0, wave });
+    ok(`${tag}Hostile: the range on, the bar "${bar0.text}" (clear of the helm, the minimap and the warp: ${!bar0.wover}); wave ${wave.wave} (${wave.ships.join(', ')}) ${wave.d.join(' and ')} m off at ${wave.t.toFixed(0)} s, east of her (${wave.east.join(', ')} m), "${wave.toast}"; the warp held with them on her (${wave.warpHeld})`,
+      set.mode === 'hostile' && bar0.shown && bar0.inside && !bar0.helm && !bar0.map && !bar0.wover && /Hostile/.test(bar0.text) && wave.wave === 1 && wave.ships.join() === 'cyclon@0.2,cyclon@0.2' && wave.east.every((x) => x > 1500) && /from the (east|north-east|south-east)/.test(wave.toast) && wave.warpHeld, { set, bar0, wave });
     ok(`${tag}...she survives ${fight.secs} s of it (afloat: ${fight.alive}, ${fight.holes} m² of holes), the wave firing ${fight.fired} rounds at her (from ${fight.seenAt ? fight.seenAt.toFixed(0) + ' s' : '—'}; ${fight.st.join(', ')} at ${fight.d.join(', ')} m); the bar "${bar1.text}"`,
       fight.secs >= 60 && fight.alive && bar1.shown && bar1.inside && /Hostile/.test(bar1.text), { fight, bar1 });
     await pageErrors(page, tag + 'hostile ');
