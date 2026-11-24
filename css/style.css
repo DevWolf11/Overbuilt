@@ -1502,6 +1502,9 @@ body.ship:not(.pc) .g-ship:not([hidden]) { display: flex; flex-direction: column
 body.ship.g-stages .ship-btns { bottom: calc(198px + var(--safe-b)); }
 @media (max-width: 760px) { body.ship.g-stages .ship-btns { bottom: calc(266px + var(--safe-b)); } }
 @media (max-height: 500px) {
+  /* (a phone on its side: the lever beside the stick at the bottom, as every ground vehicle's in landscape and a wider
+     phone's, so the row over it stands clear of it: WP3's max-width: 760px lift over the stick was for portrait) */
+  body.ship.g-thrust:not(.g-stages) .throttle-box { bottom: calc(14px + var(--safe-b)); }
   .g-ship { width: 42px; height: 42px; }
   .ship-btns, body.ship.g-stages .ship-btns { left: calc(var(--gut-l) + 170px); bottom: calc(14px + var(--safe-b)); }
   .ship-btns .g-ship { margin-top: -50px; }

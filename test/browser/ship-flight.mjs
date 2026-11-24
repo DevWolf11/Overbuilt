@@ -595,16 +595,66 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   const mg = await page.evaluate(() => { const v = Flight.active, p = v.parts.find((q) => q.def.module === 'ammo'); p.magT = 10; Ship._hud.AL.at = -1e9; Flight.updateHUD(true); const a = document.querySelector('#flight-alert'); const t = a.hidden ? '' : a.textContent; p.magT = 0; return t; });
   ok(`${tag}a fire at her magazine: "${mg}"`, /^Magazine fire! · 20 s$/.test(mg), mg);
   // a ship of theirs we doomed: SUNK over the crosshair in the aim view (once the knock-out's own line has gone)
-  if (!vp[2] || vp[0] === 390) {
-    await page.evaluate(async () => { const t = window.__mk('cyclon', -4300, 0, Math.PI / 2); t.ai = { sea: true }; await window.__simWait(0.5); Ship.doom(t, Flight, 'sunk', Flight.active); await window.__simWait(2.4); window.__texts.length = 0; Death.feedback('SUNK', Flight); await window.__simWait(0.3, true); });
-    const sb = await page.evaluate(() => window.__texts.includes('SUNK'));
+  {
+    await page.evaluate(async () => { const t = window.__mk('cyclon', -4300, 0, Math.PI / 2); t.ai = { sea: true }; await window.__simWait(0.5); Ship.doom(t, Flight, 'sunk', Flight.active); await window.__simWait(2.4); const e = Flight.active.parts.find((q) => q.def.engine); if (e) e.fire = 1; });
+    // (each word where nothing covers it: clear of the alert line ("Fire …" now), the touch buttons, the weapon chip, the
+    // lever and the rest, the crew box and the scope the canvas draws over it)
+    const fate = (word) => page.evaluate(async (word) => {
+      window.__texts.length = 0; Death.feedback(word, Flight); await window.__simWait(0.3, true);
+      const B = GHUD._S.seaBan, P = GHUD._S.P || {}, rr = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width ? { n: q, left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null; };
+      const obs = ['#flight-alert', '#btn-shold', '#btn-sdc', '#btn-sciws', '#weapon-box .weapon-chip', '#flight-ui .throttle-box', '#ammo-stack', '#btn-fire', '#btn-sight', '#btn-cm', '#btn-lock', '#joy', '#flight-ui .telemetry', '#gmap', '#key-hints'].map(rr).filter(Boolean);
+      if (P.diag) obs.push({ n: 'crew box', left: P.diag.x, right: P.diag.x + P.diag.w, top: P.diag.y, bottom: P.diag.y + P.diag.h + 18 });
+      if (P.scope) obs.push({ n: 'scope', left: P.scope.x - P.scope.R, right: P.scope.x + P.scope.R, top: P.scope.y - P.scope.R, bottom: P.scope.y + P.scope.R + 14 });
+      const hit = B ? obs.filter((o) => B.l < o.right && B.r > o.left && B.t < o.bottom && B.b > o.top).map((o) => o.n) : ['not drawn'];
+      return { drawn: window.__texts.includes(word), B: B && [B.l, B.t, B.r, B.b].map(Math.round), hit, alert: document.querySelector('#flight-alert').hidden ? '' : document.querySelector('#flight-alert').textContent }; }, word);
+    const sb = await fate('SUNK');
     await shot(page, `sunk-banner-${sz}`);
-    ok(`${tag}a ship of theirs going down: SUNK over the crosshair in the aim view`, sb, sb);
+    const oa = await fate('OUT OF ACTION');
+    ok(`${tag}a ship of theirs going down: SUNK over the crosshair in the aim view; it and OUT OF ACTION (with "${sb.alert}" up) where nothing covers them (${JSON.stringify([sb.B, oa.B])})`, sb.drawn && oa.drawn && !sb.hit.length && !oa.hit.length, { sb, oa });
+    await page.evaluate(() => { const e = Flight.active.parts.find((q) => q.def.engine); if (e) e.fire = 0; });
   }
   // her aim camera: back to her length's reach and in to 7 m (it was held to 30 m)
   const zm = await page.evaluate(() => { const k = App.H / 2 / Math.tan((25 * Math.PI) / 180), z = () => k / Flight.scale; for (let i = 0; i < 30; i++) Flight.zoomBy(0.7); const far = z(); for (let i = 0; i < 40; i++) Flight.zoomBy(1.4); const near = z(); for (let i = 0; i < 30; i++) Flight.zoomBy(0.7); return { far, near, reach: Ship.aimFar(Flight.active), in: k / Math.min(80, k / 7) }; });
   ok(`${tag}her aim camera zooms out to ${zm.far.toFixed(0)} m (her reach ${zm.reach.toFixed(0)} m, not 30) and in to ${zm.near.toFixed(1)} m (as any craft's)`, Math.abs(zm.far - zm.reach) < 1 && zm.reach > 150 && Math.abs(zm.near - zm.in) < 0.2, zm);
   await pageErrors(page, tag + 'hud ');
+  await ctx.close();
+}
+// ---- [WP12 fix] a small phone at UI size 125%: her HOLD, DC and CIWS stand higher, so the radar scope takes a smaller place
+// under the crew box (it moved beside it, where the alert line goes, and lay under the tip): the tip and the scope apart,
+// and a torpedo's and flooding's warnings clear of her hull diagram and its heel and trim
+{
+  const tag = '360×640 UI 125% ', { ctx, page } = await open([360, 640, true], tag, { uiSize: 1.25 });
+  await sailArmed(page, 'arley');
+  await page.waitForTimeout(1300); await frames(page, 2);
+  const rects = () => page.evaluate(() => { const r = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return null; const b = e.getBoundingClientRect(); return b.width ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; }, P = GHUD._S.P || {};
+    return { z: Controls.z, hint: r('#hint'), alert: r('#flight-alert'), text: document.querySelector('#flight-alert').hidden ? '' : document.querySelector('#flight-alert').textContent, cv: r('#ship-helm .sh-cv'), hl: r('#ship-helm .sh-hl'), tel: r('#flight-ui .telemetry'),
+      scope: P.scope ? { l: P.scope.x - P.scope.R, t: P.scope.y - P.scope.R, r: P.scope.x + P.scope.R, b: P.scope.y + P.scope.R + 14 } : null, btns: ['#btn-shold', '#btn-sdc', '#btn-sciws'].map(r).filter(Boolean) }; });
+  const r0 = await rects();
+  await page.evaluate(() => {
+    const v = Flight.active, side = v.axis(0, 0, 1), P = { x: v.x + side.x * 1200, y: v.y + side.y * 1200, z: v.z + side.z * 1200 }, k = (EARTH.radius - 6) / Math.hypot(P.x, P.y, P.z); P.x *= k; P.y *= k; P.z *= k;
+    const foe = { parts: [{}], name: 'Foe', kind: 'ship', body: EARTH, x: P.x, y: P.y, z: P.z, vx: 0, vy: 0, vz: 0 };
+    Combat.S.shots.push({ k: 'stor', b: EARTH, x: P.x, y: P.y, z: P.z, vx: -side.x * 22, vy: -side.y * 22, vz: -side.z * 22, dx: -side.x, dy: -side.y, dz: -side.z, t: 5, t0: 0, run: 100, ph: 'run', owner: foe, spd: 22, depth: 6, dep: 6, range: 8000, cone: 0.5, acquire: 1500, dmg: 1, blast: 1, seek: 'none', life: 600 });
+  });
+  await page.evaluate(() => window.__simWait(0.6, true)); await frames(page, 3);
+  const r1 = await rects();
+  await shot(page, 'torpedo-ui125-360x640');
+  const meet = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
+  ok(`${tag}the scope (${JSON.stringify(r0.scope && Object.values(r0.scope).map(Math.round))}) clear of the tip and her buttons; "${r1.text}" clear of her hull diagram, its heel and trim and the flight data`,
+    !!r0.scope && !meet(r0.scope, r0.hint) && r0.btns.every((B) => !meet(r0.scope, B)) && /^Torpedo/.test(r1.text) && !meet(r1.alert, r1.cv) && !meet(r1.alert, r1.hl) && !meet(r1.alert, r1.tel) && (!r1.scope || !meet(r1.alert, r1.scope)), { r0, r1 });
+  // (and flooding's longer line, wrapped beside the crew box: laid out across the whole gap, a subpixel past the crew box's
+  // fractional edge threw it out and it fell back over her hull diagram)
+  await page.evaluate(() => {
+    for (const s of Combat.S.shots) if (s.k === 'stor') s.dead = true;
+    const v = Flight.active, S = v.sh, rows = [];
+    for (const i of [1, 2, 3]) { const c = S.comps[i], p = c.p, x = (c.lo + c.hi) / 2, P = partPt(p, x, 0), R = partRect(p); rows.push([p, P.x, R.b + (R.t - R.b) * 0.3, partZ(p) + 30, 0.8]); }
+    Ship.addHoles(v, rows, Flight.time);
+  });
+  await page.evaluate(() => window.__simWait(2.5, true)); await frames(page, 3);
+  const r2 = await rects();
+  await shot(page, 'flooding-ui125-360x640');
+  ok(`${tag}"${r2.text}" (${r2.alert && [r2.alert.l, r2.alert.t, r2.alert.r, r2.alert.b].map(Math.round)}) clear of her hull diagram, its heel and trim, the flight data and the scope`,
+    /^Flooding/.test(r2.text) && !meet(r2.alert, r2.cv) && !meet(r2.alert, r2.hl) && !meet(r2.alert, r2.tel) && (!r2.scope || !meet(r2.alert, r2.scope)), r2);
+  await pageErrors(page, tag);
   await ctx.close();
 }
 // ---- the bridge view in a Rough sea: the eye never inside her (her parts' boxes, her hull), over the wave at it (the RIB on

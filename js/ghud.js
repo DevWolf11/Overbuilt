@@ -196,7 +196,7 @@ const GHUD = (() => {
     rangeText(ctx, F, v, cx, cy);
     if (st) weaponMarks(ctx, F, v, st, pr, cx, cy);
     hits(ctx, F, v, cx, cy, W, H, t);
-    if (Combat.S.sea) { drawTorps(ctx, F, v); seaBanner(ctx, cx, cy, t); } // [WP12] (torpedoes in the water; a ship's fate as we doomed her)
+    if (Combat.S.sea) { drawTorps(ctx, F, v); seaBanner(ctx, cx, cy, t, W, H); } // [WP12] (torpedoes in the water; a ship's fate as we doomed her)
     if (st) fireRing(ctx, st);
     if (!F.sight) diagram(ctx, F, v);
     if (st && st.scope && !F.sight) scope(ctx, F, v, st);
@@ -616,17 +616,41 @@ const GHUD = (() => {
   }
   // A ship of theirs we doomed (ship.js doom: Death's banner, its fate's word: SUNK, CAPSIZED, OUT OF ACTION; SUNK again as
   // she goes under): drawn here in aim mode too (the air HUD's banner isn't drawn over the ground HUD), where the
-  // knock-out's own line (Armour.fb.ko, "Sunk!") isn't showing, 74 px over the crosshair, fading in its last third of a second
-  const SEA_WORDS = new Set(['SUNK', 'CAPSIZED', 'OUT OF ACTION']);
-  function seaBanner(ctx, cx, cy, t) {
+  // knock-out's own line (Armour.fb.ko, "Sunk!") isn't showing, 74 px over the crosshair, fading in its last third of a
+  // second. Where something is there (the alert line, the tip, a control, the crew box or the scope, which the DOM's
+  // buttons cover or the canvas draws over it), the clear place nearest that: just under or over one of them, and up to
+  // 60 px aside, never on the cross and its range; the tip (a passing one) given up first. Looked for four times a second.
+  const SEA_WORDS = new Set(['SUNK', 'CAPSIZED', 'OUT OF ACTION']), SB = { t: -1, at: -1e9, x: 0, y: 0 };
+  function seaBanner(ctx, cx, cy, t, W, H) {
     const fb = typeof Death !== 'undefined' && Death.fb, ko = Armour.fb.ko;
     if (!fb || !SEA_WORDS.has(fb.text) || !(t >= fb.t && t - fb.t < fb.life) || (ko && t >= ko.t && t - ko.t < 2.2)) return;
     ctx.save(); ctx.globalAlpha = clamp(3 * (fb.life - (t - fb.t)), 0, 1);
     ctx.font = '700 20px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = fb.col || COL.enemy; ctx.textAlign = 'center';
-    let y = cy - 74;
-    const al = document.querySelector('#flight-alert'), r = al && !al.hidden ? al.getBoundingClientRect() : null, w = ctx.measureText(fb.text).width;
-    if (r && r.width > 0 && cx + w / 2 + 6 > r.left && cx - w / 2 - 6 < r.right && y + 6 > r.top && y - 26 < r.bottom) y = cy + 84; // (under the cross when the alert line sits where it would go: a phone's)
-    text(ctx, fb.text, cx, y);
+    const w = ctx.measureText(fb.text).width, now = performance.now();
+    if (SB.t !== fb.t || SB.w !== w || now - SB.at > 250) {
+      SB.t = fb.t; SB.w = w; SB.at = now;
+      const q = (s) => { const e = document.querySelector(s); if (!e || e.hidden) return null; const b = e.getBoundingClientRect(); return b.width > 0 ? b : null; };
+      const r = q('#flight-alert'), tip = q('#hint'), P = S.P, obs = r ? [r] : [], y0 = cy - 74, half = w / 2 + 6;
+      if (P && P.block) obs.push(...P.block);
+      if (P && P.scope) obs.push({ left: P.scope.x - P.scope.R, right: P.scope.x + P.scope.R, top: P.scope.y - P.scope.R, bottom: P.scope.y + P.scope.R + 14 });
+      obs.push({ left: cx - 60, right: cx + 60, top: cy - 24, bottom: cy + 36 });
+      const look = (obs) => {
+        const ok = (x, y) => y - 26 >= 4 && y + 6 <= H - 4 && x - half >= 4 && x + half <= W - 4 && !obs.some((o) => x + half > o.left && x - half < o.right && y + 6 > o.top && y - 26 < o.bottom);
+        const xs = [cx], ys = [y0, cy + 84];
+        for (const o of obs) { ys.push(Math.ceil(o.bottom) + 27, Math.floor(o.top) - 7); xs.push(Math.ceil(o.right) + half, Math.floor(o.left) - half); }
+        let best = null, bk = Infinity;
+        for (const x of xs) {
+          if (Math.abs(x - cx) > 60) continue;
+          for (const y of ys) { const k = Math.abs(y - y0) + 2 * Math.abs(x - cx); if (k < bk && ok(x, y)) { best = [x, y]; bk = k; } }
+        }
+        return best;
+      };
+      const at = (tip && look([...obs, tip])) || look(obs);
+      if (at) { SB.x = at[0]; SB.y = at[1]; }
+      else { SB.x = cx; SB.y = r && cx + half > r.left && cx - half < r.right && y0 + 6 > r.top && y0 - 26 < r.bottom ? cy + 84 : y0; } // (nowhere clear: clear of the alert line at least)
+    }
+    text(ctx, fb.text, SB.x, SB.y);
+    S.seaBan = { text: fb.text, l: SB.x - w / 2, r: SB.x + w / 2, t: SB.y - 20, b: SB.y + 5, at: t }; // (where it went: the tests')
     ctx.restore();
   }
 
@@ -677,12 +701,16 @@ const GHUD = (() => {
     block.push({ left: diag.x, right: diag.x + diag.w, top: diag.y, bottom: diag.y + dh + 18 });
     const R0 = land ? 40 : W < 500 ? 40 : 46;
     let scope = null;
-    const spots = [[Tl + R0, diag.y + dh + 30 + R0, R0], [diag.x + diag.w + 14 + R0, diag.y + R0, R0], ...(ms ? [[ms.right + 14 + R0, ms.top + R0, R0]] : []), [Tr + 14 + R0, (T ? T.top : 12) + R0, R0], [Tl + 30, diag.y + dh + 50, 30]];
+    // ([WP12] a ship's: a smaller scope under the crew box before the place beside it, so with her HOLD, DC and CIWS standing
+    // higher at a big UI size the scope keeps under the crew box and the alert line its place beside it, clear of her hull
+    // diagram)
+    const ship = !!F.active && typeof isSea === 'function' && isSea(F.active.kind);
+    const spots = [[Tl + R0, diag.y + dh + 30 + R0, R0], ...(ship ? [[Tl + 30, diag.y + dh + 50, 30]] : []), [diag.x + diag.w + 14 + R0, diag.y + R0, R0], ...(ms ? [[ms.right + 14 + R0, ms.top + R0, R0]] : []), [Tr + 14 + R0, (T ? T.top : 12) + R0, R0], [Tl + 30, diag.y + dh + 50, 30]];
     for (const [x, y, R] of spots) {
       const a = { x: x - R, y: y - R, w: 2 * R, h: 2 * R + 14 };
       if (!hit(a)) { scope = { x, y, R }; break; }
     }
-    S.P = { diag, scope, fire: fire ? { x: (fire.left + fire.right) / 2, y: (fire.top + fire.bottom) / 2, r: fire.width / 2 } : null };
+    S.P = { diag, scope, fire: fire ? { x: (fire.left + fire.right) / 2, y: (fire.top + fire.bottom) / 2, r: fire.width / 2 } : null, block }; // ([WP12] block: what a ship's fate word keeps clear of)
     // the minimap's backing store, and where the hint goes under it
     const map = $('#gmap');
     if (map && gm) {

@@ -248,6 +248,23 @@ for (const vp of part(2) ? SIZES : []) {
   await pageErrors(page, tag + ' ');
   await ctx.close();
 }
+// [WP12 fix] a small phone on its side (both its max-width: 760px and its max-height: 500px rules): a ship's lever beside
+// the stick at the bottom, her HOLD, DC and CIWS over it, clear of it and of everything (they sat on its foot and STOP when
+// the portrait rule lifted the lever), and a finger on STOP rings Stop
+for (const vp of part(2) ? [[740, 360, true], [667, 375, true], [640, 360, true]] : []) {
+  const tag = `${vp[0]}×${vp[1]}`, { ctx, page } = await open(vp, {}, tag + ' ');
+  await fly(page, 'cyclon');
+  await page.waitForTimeout(1300); await frames(page, 2);
+  await page.evaluate(() => { const c = document.querySelector('#btn-sciws'); window.__ciwsWas = c.hidden; c.hidden = false; });
+  const L = await page.evaluate(layout);
+  const st = await page.evaluate(() => { const r = document.querySelector('#btn-tcut').getBoundingClientRect(), e = document.elementFromPoint((r.left + r.right) / 2, r.bottom - 4); return e && e.closest('#btn-tcut') ? 'STOP' : e ? e.id || e.className : null; });
+  await shot(page, `ship-land-${vp[0]}x${vp[1]}`);
+  await page.evaluate(() => { document.querySelector('#btn-sciws').hidden = window.__ciwsWas; });
+  judge(`${tag}, a ship on a small phone on its side`, L, ['stick', 'throttle', 'telemetry', 'map', 'hold', 'dc', 'ciws']);
+  ok(`${tag}, a ship: a finger on STOP's foot gets STOP (${st})`, st === 'STOP', st);
+  await pageErrors(page, tag + ' ');
+  await ctx.close();
+}
 if (part(2)) ok('the HUD\'s scale in its bands: a phone 0.92-1.1 by its width, a tablet 1.2, a desktop 1 up to 1.2 at 1080p', zs['360×640'] === 0.92 && zs['375×667'] === 0.96 && zs['390×844'] === 1 && zs['430×932'] === 1.1 && zs['768×1024'] === 1.2 && zs['844×390'] === 1 && zs['1280×720 desktop'] === 1 && zs['1920×1080 desktop'] === 1.2, zs);
 // the UI size setting: 125% on a 1080p desktop (1.2 × 1.25), 150% held to a 720p desktop's room; on a phone only as far
 // as its room allows

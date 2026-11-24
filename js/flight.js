@@ -866,8 +866,12 @@ const Flight = {
         cand.push({ t, x, gw, k: Math.abs(t - A.t) + 60 * (n - 1) + 0.5 * Math.abs(x - W / 2) }); // (near its own place, on few lines, near the middle)
       }
       cand.sort((p, q) => p.k - q.k);
+      // ([WP12] a ship's a pixel inside the gap on each side: laid out across the whole gap, the box can land a subpixel
+      // past an obstacle's fractional edge and be thrown out, so on a 360 × 640 phone at UI size 125% her flooding line found
+      // no place beside the crew box and fell back over her hull diagram)
+      const sl = this.active && isSea(this.active.kind) ? 2 : 0;
       for (const c of cand.slice(0, 12)) {
-        put(c.t, c.x, c.gw);
+        put(c.t, c.x, c.gw - sl);
         const R = box();
         if (R && !at(R, obs) && R.b <= hi) return 'wrap';
       }
