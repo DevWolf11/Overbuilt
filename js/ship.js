@@ -108,6 +108,7 @@ const SHIP = {
   MOOR: { t: 5, v: 0.5, wake: 200, wakeV: 2, hz: 10 }, // still for t s under v m/s: moored (drifts on the waves at hz); woken by a craft within wake m faster than wakeV
   aiNear: 12000,                     // m: AI ships are stepped this far from the player
   LOD: 1500,                         // m from the camera: every other ring, forces every other step
+  LOD_AI: 4,                         // [WP10 review] a computer's ship (20 m and more) over 2 × LOD off: her forces one step in LOD_AI
   // ---- launch (§4.11)
   LAUNCH: { shallow: 2, step: 50, max: 1000 }, // a spot with the keel within `shallow` m of the bed moves out to sea in `step` m steps, up to `max`
   // ---- units
@@ -154,10 +155,25 @@ const SHIP = {
   // ---- the AI (§9.1)
   AI: { think: 4, look: 1, gunK: [0.5, 0.8], missile: [8000, 12000], ahead: [1, 2, 3], aheadMin: 300, aheadT: 25, fan: [30, 60],
         avoid: 500, err: [0.003, 0.001], walk: 0.3, torpR: 3000, torpN: 2, torpSpread: 4, torpEvery: 60, asm: [3000, 12000], asmEvery: 20,
-        zig: 30, zigT: 20, retreat: 0.5, column: 600, losT: 0.5, react: [4, 1.5] }, // ([WP10] react: s after she first sees a ship before her missiles and torpedoes go, worst..best)
+        zig: 30, zigT: 20, retreat: 0.5, column: 600, losT: 0.5, react: [4, 1.5], // ([WP10] react: s after she first sees a ship before her missiles and torpedoes go, worst..best)
+        // [WP10 review] her automatic guns at a ship or the shore only within autoK × their reach, in bursts of burst s (worst..best)
+        // with burstOff s between; nothing fired through a friend within `ffW` m of the line of fire (twice it for a
+        // missile's or a torpedo's run); `stuck` s under 1 kn with her telegraph ahead (aground, pinned on a coast):
+        // astern for `astern` s, then a fresh way; a retreat `away` m off, to open water
+        autoK: 0.8, burst: [1, 2], burstOff: 4, ffW: 60, stuck: 20, astern: 15, away: 5000 },
   NRANGE: { back: 60, gap: 30, first: 20, far: 6000, // [WP10] the Naval Range (EARTH.navalRange): a Practice ship back `back` s after it goes down; `gap` s between Hostile waves, the first `first` s in; on within r + far m of its middle
-    waves: [['cyclon', 'cyclon'], ['osca', 'cyclon'], ['vizby', 'osca'], ['olivar', 'vizby'], ['arley', 'olivar', 'vizby', 'osca']] }, // (each wave's ships; the fifth's from then on, one more each wave to four)
-  STRIKE: { alt: 300, low: 60, lowR: 3000, rel: 800, every: 180, max: 2, v: 210 }, // strike aircraft: run in at alt m, low for the last lowR m, release at rel m; one every `every` s, at most max; [WP10] its run at v m/s (the bombs' fall from low at v carries them about rel m)
+    waves: [['cyclon', 'cyclon'], ['osca', 'cyclon'], ['vizby', 'osca'], ['olivar', 'vizby'], ['arley', 'olivar', 'vizby', 'osca']], // (each wave's ships; the fifth's from then on, one more each wave to four)
+    // [WP10 review] a wave comes in `margin` m beyond the horizon between her masthead and its tallest (within `spawn` m of
+    // her), from the east if the sea allows (the nearest bearing to it whose way by sea is no longer than `near` × the
+    // straight line; else the bearing with the shortest way, no longer than `detour` ×), in column astern; the range's
+    // controller calls her place to it every `call` s until it sees her. A Practice ship comes back only where nothing
+    // lies within `clear` m. The time warp is held at 1× while a Hostile wave's ship is within warpR m of her or sees her
+    // within its weapons' reach, or a strike aircraft is within strikeR m
+    spawn: [6500, 10500], margin: 1200, near: 1.25, detour: 1.8, call: 30, clear: 200, warpR: 4000, strikeR: 12000 },
+  STRIKE: { alt: 300, low: 60, lowR: 3000, rel: 800, every: 180, max: 2, v: 210, err: [55, 30] }, // strike aircraft: run in at alt m, low for the last lowR m, release at rel m; one every `every` s, at most max; [WP10] its run at v m/s (the bombs' fall from low at v carries them about rel m); [WP10 review] one bomb a pass, let go off by about err m along its run (worst..best: the wave's skill)
+  // [WP10 review] the sea round the Naval Range for the computer's ships' ways: depths on a `cell` m lattice over (e, z)
+  // from (e0, z0), w × h cells, `slice` looked up a frame; a cell deeper than `deep` m is open water (dearer beside the shallows)
+  NAV: { e0: -10000, z0: -16000, cell: 500, w: 76, h: 64, deep: 12, slice: 32 },
   // ---- waves (§5.1): at Moderate, [amplitude m, period s, direction ° from the swell's heading, phase rad]
   SEA: { calm: { a: 0.3, t: 0.75 }, moderate: { a: 1.0, t: 1.0 }, rough: { a: 2.5, t: 1.36 } }, // amplitude and period factors
   WAVES: [[0.28, 5.5, 0, 0.0], [0.18, 4.4, 25, 1.7], [0.12, 6.6, -20, 4.1], [0.07, 3.3, 50, 2.6]],
@@ -559,15 +575,17 @@ const Ship = (() => {
   function forces(v, dt, vb, wb, sim) {
     const S = v.sh;
     if (!S) return;
-    const A = sim && sim.active, far = A && A !== v && A.body === v.body && (A.x - v.x) ** 2 + (A.y - v.y) ** 2 + (A.z - v.z) ** 2 > SHIP.LOD * SHIP.LOD;
-    if (far && v.hF && (S.lodT = S.lodT ? 0 : 1) === 0) return; // (the step between: last step's forces again)
+    const A = sim && sim.active, d2 = A && A !== v && A.body === v.body ? (A.x - v.x) ** 2 + (A.y - v.y) ** 2 + (A.z - v.z) ** 2 : 0, far = !!A && d2 > SHIP.LOD * SHIP.LOD;
+    // ([WP10 review] a computer's ship of 20 m and more over 2 × LOD off: her forces one step in LOD_AI, held between)
+    const k = far && v.ai && v.ai.sea && d2 > 4 * SHIP.LOD * SHIP.LOD && (S.Lwl || 0) >= 20 ? SHIP.LOD_AI : 2;
+    if (far && v.hF && (k === 2 ? (S.lodT = S.lodT ? 0 : 1) === 0 : (S.lodT = (S.lodT + 1) % k) !== 1)) return; // (the step between: last step's forces again)
     const hF = v.hF || (v.hF = v3()), hT = v.hT || (v.hT = v3());
     hF.x = hF.y = hF.z = 0; hT.x = hT.y = hT.z = 0;
     S.T = 0;
     waterOf(v, S);
     const r = frameOf(v, S), b = v.body;
     if (!(S.level > -Infinity)) { S.fsub = 0; S.B = 0; v.afloat = false; return; }
-    const gl = b.mu / (r * r), W = v.mass * gl, h0 = r - b.radius - S.level, t = seaT(sim), lod = far ? 0.5 : 1;
+    const gl = b.mu / (r * r), W = v.mass * gl, h0 = r - b.radius - S.level, t = seaT(sim), lod = far ? 1 / k : 1;
     S.rk0.set(S.rk); // [WP6] (last step's keel depths: a ring meeting the water)
     const B = buoy(v, S, h0, t, gl, false), Ub = S.Ub;
     S.fsub = clamp(B / Math.max(W, 1), 0, 1);
@@ -4571,6 +4589,144 @@ const Ship = (() => {
   function along(v, S, b, d, o) { const c = Math.cos(b) * d, s = Math.sin(b) * d; o.x = v.x + S.N.x * c + S.E.x * s; o.y = v.y + S.N.y * c + S.E.y * s; o.z = v.z + S.N.z * c + S.E.z * s; return o; }
   const hdist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
+  // ---- [WP10 review] ways by sea: the sea round the Naval Range on SHIP.NAV's lattice (each cell's depth, built a slice
+  // a frame from aiFrame once a ship of the computer's fights: Terrain.heightAt costs tens of µs, so never in one go),
+  // and a way between two points on it (A* over the open cells, those beside shallows or land dearer, pulled straight
+  // wherever a clear line runs): the computer's ships go round islands, not into them (look keeps them off what the
+  // lattice is too coarse for). Off the lattice, or before it is built: the straight line, as before
+  const NV = SHIP.NAV, NAVS = { D: null, F: null, i: 0, key: null, ok: false };
+  const navKey = () => (EARTH.mapped ? 'map' : 'gen') + (typeof Terrain !== 'undefined' && Terrain.earthMap ? Terrain.earthMap.state : '');
+  function navStep(n) {
+    const K = navKey(), W = NV.w, H = NV.h;
+    if (NAVS.key !== K) { NAVS.key = K; NAVS.D = new Float32Array(W * H); NAVS.F = new Uint8Array(W * H); NAVS.i = 0; NAVS.ok = false; }
+    if (NAVS.ok || typeof Terrain === 'undefined') return NAVS.ok;
+    const D = NAVS.D;
+    for (let k = 0; k < n && NAVS.i < W * H; k++, NAVS.i++) {
+      const i = NAVS.i, e = NV.e0 + ((i % W) + 0.5) * NV.cell, z = NV.z0 + (Math.floor(i / W) + 0.5) * NV.cell;
+      D[i] = -Terrain.heightAt(EARTH, siteAngle(EARTH, e), z);
+    }
+    if (NAVS.i < W * H) return false;
+    // (flags: 1 open water, 2 wide: open with all eight neighbours open, so a way through wide cells keeps a cell off the shallows)
+    const Fl = NAVS.F;
+    for (let i = 0; i < W * H; i++) Fl[i] = D[i] >= NV.deep ? 1 : 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (!Fl[i]) continue;
+      let wide = x > 0 && y > 0 && x < W - 1 && y < H - 1;
+      for (let dy = -1; dy <= 1 && wide; dy++) for (let dx = -1; dx <= 1 && wide; dx++) if (!(Fl[i + dy * W + dx] & 1)) wide = false;
+      if (wide) Fl[i] |= 2;
+    }
+    return (NAVS.ok = true);
+  }
+  const navOn = () => NAVS.ok && NAVS.key === navKey();
+  function navCell(e, z) { const x = Math.floor((e - NV.e0) / NV.cell), y = Math.floor((z - NV.z0) / NV.cell); return x < 0 || y < 0 || x >= NV.w || y >= NV.h ? -1 : y * NV.w + x; }
+  const navOpen = (e, z, wide) => { const i = navCell(e, z); return i >= 0 && (NAVS.F[i] & (wide ? 2 : 1)) > 0; };
+  // a clear line by sea from a to b ({ e, z }): every cell on it open, and wide away from its ends (within `ends` m of them
+  // open will do: a ship in a harbour, a goal by a coast)
+  function navClear(a, b, ends = 700) {
+    const L = Math.hypot(b.e - a.e, b.z - a.z), n = Math.max(1, Math.ceil(L / (NV.cell / 3)));
+    for (let k = 0; k <= n; k++) {
+      const s = k / n, d = s * L, e = a.e + (b.e - a.e) * s, z = a.z + (b.z - a.z) * s, i = navCell(e, z);
+      if (i < 0) return true; // (off the lattice: as it was, straight)
+      if (!(NAVS.F[i] & (d < ends || L - d < ends ? 1 : 2))) return false;
+    }
+    return true;
+  }
+  // the nearest open cell to cell i (a ring at a time, up to 6 cells out; bit 2: the nearest wide one), or -1
+  function navNear(i, bit = 1) {
+    if (i < 0 || NAVS.F[i] & bit) return i;
+    const W = NV.w, x0 = i % W, y0 = Math.floor(i / W);
+    for (let r = 1; r <= 6; r++) {
+      let best = -1, bd = Infinity;
+      for (let y = y0 - r; y <= y0 + r; y++) for (let x = x0 - r; x <= x0 + r; x++) {
+        if (Math.max(Math.abs(x - x0), Math.abs(y - y0)) !== r || x < 0 || y < 0 || x >= W || y >= NV.h) continue;
+        const j = y * W + x, d = (x - x0) ** 2 + (y - y0) ** 2;
+        if (NAVS.F[j] & bit && d < bd) { bd = d; best = j; }
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
+  }
+  // a way by sea from a to b ({ e, z }): [{ e, z }, ...] ending at b, pulled straight; null when there is none on the lattice
+  let NG = null, NO = null, NH = null, NC = null, NF = null;
+  function navPath(a, b) {
+    const W = NV.w, N = W * NV.h, s = navNear(navCell(a.e, a.z)), g = navNear(navCell(b.e, b.z));
+    if (s < 0 || g < 0) return null;
+    if (!NG) { NG = new Float32Array(N); NO = new Int32Array(N); NH = new Int32Array(8 * N); NC = new Uint8Array(N); NF = new Float32Array(N); }
+    NG.fill(Infinity); NO.fill(-1); NC.fill(0);
+    const gx = g % W, gy = Math.floor(g / W), hf = (j) => Math.hypot((j % W) - gx, Math.floor(j / W) - gy), F = NF; // (F: g + h, the heap's keys)
+    let hn = 0;
+    const push = (j) => { let k = hn++; NH[k] = j; while (k > 0) { const p = (k - 1) >> 1; if (F[NH[p]] <= F[NH[k]]) break; const t = NH[p]; NH[p] = NH[k]; NH[k] = t; k = p; } };
+    const pop = () => { const top = NH[0]; NH[0] = NH[--hn]; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < hn && F[NH[l]] < F[NH[m]]) m = l; if (r < hn && F[NH[r]] < F[NH[m]]) m = r; if (m === k) break; const t = NH[m]; NH[m] = NH[k]; NH[k] = t; k = m; } return top; };
+    NG[s] = 0; F[s] = hf(s); push(s);
+    let found = false;
+    while (hn > 0) {
+      const c = pop();
+      if (NC[c]) continue;
+      NC[c] = 1;
+      if (c === g) { found = true; break; }
+      const cx = c % W, cy = Math.floor(c / W);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const x = cx + dx, y = cy + dy;
+        if (x < 0 || y < 0 || x >= W || y >= NV.h) continue;
+        const j = y * W + x;
+        if (NC[j] || !(NAVS.F[j] & 1)) continue;
+        if (dx && dy && !((NAVS.F[cy * W + x] & 1) && (NAVS.F[y * W + cx] & 1))) continue; // (no corner cut past land)
+        const gj = NG[c] + (dx && dy ? Math.SQRT2 : 1) * (NAVS.F[j] & 2 ? 1 : 2.5);
+        if (gj < NG[j]) { NG[j] = gj; NO[j] = c; F[j] = gj + hf(j); push(j); }
+      }
+    }
+    if (!found) return null;
+    const cells = [];
+    for (let c = g; c >= 0; c = NO[c]) { cells.push(c); if (c === s) break; }
+    cells.reverse();
+    const pts = cells.map((c) => ({ e: NV.e0 + ((c % W) + 0.5) * NV.cell, z: NV.z0 + (Math.floor(c / W) + 0.5) * NV.cell }));
+    pts[pts.length - 1] = { e: b.e, z: b.z };
+    // pulled straight: from each point, on to the farthest one a clear line reaches
+    const out = [];
+    let at = { e: a.e, z: a.z }, k = 0;
+    while (k < pts.length - 1) {
+      let j = pts.length - 1;
+      while (j > k && !navClear(at, pts[j])) j--;
+      if (j === k) j = k + 1;
+      out.push(pts[j]); at = pts[j]; k = j;
+    }
+    if (!out.length) out.push({ e: b.e, z: b.z });
+    return out;
+  }
+  // its length (m) from a
+  const pathLen = (a, P) => { let L = 0, p = a; for (const q of P) { L += Math.hypot(q.e - p.e, q.z - p.z); p = q; } return L; };
+  // The heading to steer for P (sim) by sea: straight while the line there is clear (or the lattice isn't ready, or she
+  // is off it), else along a way round (planned again when P moves 500 m from its end, or every 20 s), on to the next
+  // point of it once she is within 400 m of one or a clear line runs to the next
+  // A goal ashore or in the shallows (its lattice cell not open water: a course point on land, a target by a coast) is
+  // the nearest wide water to it instead (a cell whose neighbours are all open: off the coast), so she never drives at
+  // the coast for it: the sim point to steer for (out, or P itself)
+  const _ea = { e: 0, z: 0 }, _eb = { e: 0, z: 0 }, _aw = v3(), _ag = v3(), _egl = { e: 0, z: 0 };
+  function seaGoal(P, out = _ag, ez = _egl) {
+    ezOf(P, ez);
+    const i = navOn() ? navCell(ez.e, ez.z) : -1;
+    if (i < 0 || NAVS.F[i] & 1) return P;
+    const j = navNear(i, 2);
+    if (j < 0) return P;
+    ez.e = NV.e0 + ((j % NV.w) + 0.5) * NV.cell; ez.z = NV.z0 + (Math.floor(j / NV.w) + 0.5) * NV.cell;
+    return simAt(ez.e, ez.z, 0, out);
+  }
+  function seaWay(v, P, now) {
+    const a = v.ai, S = v.sh;
+    if (!navOn()) return bearingTo(v, S, P);
+    P = seaGoal(P);
+    ezOf(v, _ea); ezOf(P, _eb);
+    if (navCell(_ea.e, _ea.z) < 0 || navClear(_ea, _eb)) { a.path = null; a.wayTo = null; return bearingTo(v, S, P); }
+    const to = a.wayTo; // (the goal the way was planned for: planned again when it moves 500 m, or after 20 s; none found: straight, until then)
+    if (!to || now - a.pathAt > 20 || now < a.pathAt || Math.hypot(to.e - _eb.e, to.z - _eb.z) > 500) { a.path = navPath(_ea, _eb); a.pathAt = now; a.pi = 0; a.wayTo = { e: _eb.e, z: _eb.z }; }
+    if (!a.path) return bearingTo(v, S, P);
+    while (a.pi < a.path.length - 1 && (Math.hypot(a.path[a.pi].e - _ea.e, a.path[a.pi].z - _ea.z) < 400 || navClear(_ea, a.path[a.pi + 1]))) a.pi++;
+    const W = a.path[a.pi];
+    return bearingTo(v, S, simAt(W.e, W.z, 0, _aw));
+  }
+
   // ---- the stock ships, made ready once: rows, price and (once one has aimed) the turrets' limits, which every later one
   // copies instead of sweeping again (GroundAI's tplOf / limitsTo: an Arley Berk's sweep is a hitch at each spawn otherwise)
   function aiTpl(key) {
@@ -4625,9 +4781,11 @@ const Ship = (() => {
       tgt: null, tAt: -9, tSeen: -9, seenAt: 0, lookN: 0, airs: null, tLast: null, air: null, shore: null, shoreAt: -9, shoreD: Infinity, gt: null, gk: null, D: 0, seeR: 0, reach: 0, seeFor: null, seeAt: -9,
       gtAt: -9, P: v3(), ea: 0, eb: 0, errAt: -9, errK: sk(AIC.err, s), corr: v3(), corrFor: null, fo: [], tof: 0, salvoN: 0, fired: 0,
       asmAt: -Infinity, asm2: null, torpAt: -Infinity, samAt: -Infinity, sams: [], decoyAt: -Infinity, hitAt: v.lastHitAt ?? null, fireAt: -Infinity, zig: AIS.rnd() < 0.5 ? -1 : 1, zigAt: now,
-      torp: null, retreat: false, smokeAt: -9, avoid: null, want: null, telAt: -9, loop: o.loop || null, wp: 0, wave: o.wave || 0, slot: o.slot || 0, lead: o.lead || null, course: o.course || null };
+      torp: null, retreat: false, smokeAt: -9, avoid: null, want: null, telAt: -9, loop: o.loop || null, wp: 0, wave: o.wave || 0, slot: o.slot || 0, lead: o.lead || null, course: o.course || null,
+      path: null, pathAt: -99, pi: 0, wayTo: null, away: null, awayAt: -99, stuckT: 0, backUntil: -9, burstAt: -99 }; // ([WP10 review] her way by sea, a retreat's open water, aground or pinned, her automatic guns' bursts)
     if (v.ai.loop) { const L = v.ai.loop; v.ai.wp = Number.isFinite(L.wp) ? L.wp : 0; }
-    ciwsOn(v, true);
+    ciwsOn(v, v.ai.role === 'fight'); // ([WP10 review] a Practice target's close-in gun stays off: they never fire)
+    if (T.top == null) T.top = topOf(v, _ot).h; // (her masthead over the water: how far off a wave comes, beyond the horizon)
     F.vessels.push(v);
     AIS.ships.push(v);
     return v;
@@ -4838,7 +4996,7 @@ const Ship = (() => {
         const d = hdist(s, v);
         if (d < 8000) TH.push(s);
       } else if (s.k === 'shell' || s.k === 'bullet') { // (rounds of a foe's falling round her: under fire)
-        if (s.owner && s.owner !== v && foe(v, s.owner) && (s.x - v.x) ** 2 + (s.y - v.y) ** 2 + (s.z - v.z) ** 2 < 1e4 + (v.reach || 0) ** 2) a.fireAt = now;
+        if (s.owner && s.owner !== v && (s.x - v.x) ** 2 + (s.y - v.y) ** 2 + (s.z - v.z) ** 2 < 1e4 + (v.reach || 0) ** 2 && foe(v, s.owner)) a.fireAt = now; // ([WP10 review] the distance first: a battle's hundreds of rounds in the air cost a sum each, not a foe() each)
       }
     }
     if (v.lastHitAt != null && v.lastHitAt !== a.hitAt) { a.hitAt = v.lastHitAt; if (v.lastHitBy && v.lastHitBy !== v) a.fireAt = now; }
@@ -4894,29 +5052,35 @@ const Ship = (() => {
     const a = v.ai, S = v.sh, psi = heading(v, S);
     let hdg = psi, tel = 3;
     const T = a.tgt;
+    // ([WP10 review] aground, or pinned against a coast: under 1 kn for AI.stuck s with her telegraph ahead and the bed
+    // or the shallows at hand (touching, under her, or ahead): astern for AI.astern s, her heading held, then a fresh way)
+    a.stuckT = (v.speed() < 0.5 && S.tel > 0 && (v.contactTime > 0 || a.avoid || S.depth < (v.draft || 3) + 6)) || v.landed ? a.stuckT + 1 / AIC.think : 0;
+    if (a.stuckT > AIC.stuck) { a.stuckT = 0; a.backUntil = now + AIC.astern; a.path = null; a.wayTo = null; a.away = null; a.avoid = null; }
+    if (now < a.backUntil && !a.torp) { a.state = 'astern'; a.want = null; order(v, psi, -2, F); return; }
     if (a.torp) { // (a torpedo seen running at her: comb its track, bow or stern on to it, whichever is the smaller turn, Flank)
       const s = a.torp, tb = Math.atan2(s.vx * S.E.x + s.vy * S.E.y + s.vz * S.E.z, s.vx * S.N.x + s.vy * S.N.y + s.vz * S.N.z), b0 = wrapAngle(tb + Math.PI);
       hdg = Math.abs(wrapAngle(tb - psi)) < Math.abs(wrapAngle(b0 - psi)) ? tb : b0; tel = 4; a.state = 'comb';
-    } else if (a.retreat) { // (away from the fight at Flank, her smoke laid astern)
+    } else if (a.retreat) { // (away from the fight at Flank, to open water AI.away m off, her smoke laid astern)
       const from = T ? (T.def ? Combat.targetCentre(T) : T) : a.tLast;
-      hdg = from ? wrapAngle(bearingTo(v, S, from) + Math.PI) : psi; tel = 4; a.state = 'retreat';
+      if (!a.away || now - a.awayAt > 60 || now < a.awayAt || hdist(a.away, v) < 600) { a.away = from ? awayPt(v, from) : null; a.awayAt = now; }
+      hdg = a.away ? seaWay(v, a.away, now) : from ? wrapAngle(bearingTo(v, S, from) + Math.PI) : psi; tel = 4; a.state = 'retreat';
       if (now - a.smokeAt >= 1 && Combat.S.smoke.length < 60) { a.smokeAt = now; smokeAstern(v); }
-    } else if (T && a.seen) { // (her range: between gunK × her reach, closing at Full, opening at Full, broadside at Half)
+    } else if (T && a.seen) { // (her range: between gunK × her reach, closing at Full (Flank while far off), opening at Full, broadside at Half)
       const P = T.def ? Combat.targetCentre(T) : T, b = bearingTo(v, S, P), d = a.D, R = a.reach;
-      if (d > AIC.gunK[1] * R) { hdg = b; tel = 3; a.state = 'close'; }
-      else if (d < AIC.gunK[0] * R) { hdg = b + Math.PI; tel = 3; a.state = 'open'; }
+      if (d > AIC.gunK[1] * R) { hdg = seaWay(v, P, now); tel = d > 1.5 * AIC.gunK[1] * R ? 4 : 3; a.state = 'close'; }
+      else if (d < AIC.gunK[0] * R) { along(v, S, b + Math.PI, 2000, _ap); hdg = seaWay(v, _ap, now); tel = 3; a.state = 'open'; }
       else { const p = wrapAngle(b + 80 * DEG), q = wrapAngle(b - 80 * DEG); hdg = Math.abs(wrapAngle(p - psi)) < Math.abs(wrapAngle(q - psi)) ? p : q; tel = 2; a.state = 'engage'; }
-    } else if (a.tLast && now - a.tSeen < 120 && hdist(a.tLast, v) > 400) { hdg = bearingTo(v, S, a.tLast); tel = 3; a.state = 'hunt'; } // (where she saw it last, for two minutes, until she is there)
+    } else if (a.tLast && now - a.tSeen < 120 && hdist(a.tLast, v) > 400) { hdg = seaWay(v, a.tLast, now); tel = 3; a.state = 'hunt'; } // (where she saw it last, for two minutes, until she is there)
     else if (a.lead && !a.lead.dead && !a.lead.fate && a.lead.ai && !a.lead.ai.down) { // (in column: AIC.column m astern of the one ahead)
       const L = a.lead, LS = L.sh, Fw = qrot(L.q, LS.ax.x, LS.ax.y, LS.ax.z, _aq), k = AIC.column;
       _ar.x = L.x - Fw.x * k; _ar.y = L.y - Fw.y * k; _ar.z = L.z - Fw.z * k;
       const d = hdist(_ar, v), ahead = (_ar.x - v.x) * Fw.x + (_ar.y - v.y) * Fw.y + (_ar.z - v.z) * Fw.z;
-      hdg = d > 150 ? bearingTo(v, S, _ar) : heading(L, LS); tel = ahead > 100 ? 4 : ahead < -100 ? 1 : clamp(L.sh.tel, 1, 3); a.state = 'column';
-    } else if (a.course) { // (the wave's course, waypoint by waypoint, then round again; at Half while her column falls behind)
-      const C = a.course, W = simAt(C[a.wp % C.length].e, C[a.wp % C.length].z, 0, _ap);
+      hdg = d > 150 ? seaWay(v, _ar, now) : heading(L, LS); tel = ahead > 100 ? 4 : ahead < -100 ? 1 : clamp(L.sh.tel, 1, 4); a.state = 'column';
+    } else if (a.course) { // (the wave's course, waypoint by waypoint, then round again, at Flank; at Full while her column falls behind, Half while it falls far behind)
+      const C = a.course, W = seaGoal(simAt(C[a.wp % C.length].e, C[a.wp % C.length].z, 0, _ap)); // (one ashore: the open water nearest it)
       if (hdist(W, v) < Math.max(200, 2 * (v.reach || 0))) a.wp = (a.wp + 1) % C.length; // (within 200 m, or her own length: the next)
-      hdg = bearingTo(v, S, simAt(C[a.wp % C.length].e, C[a.wp % C.length].z, 0, _ap)); tel = 3; a.state = 'transit';
-      for (const o of AIS.ships) if (o.ai && o.ai.lead === v && !o.dead && !o.ai.down && hdist(o, v) > 1.3 * AIC.column) { tel = 2; break; }
+      hdg = seaWay(v, simAt(C[a.wp % C.length].e, C[a.wp % C.length].z, 0, _ap), now); tel = 4; a.state = 'transit';
+      for (const o of AIS.ships) if (o.ai && o.ai.lead === v && !o.dead && !o.ai.down) { const d = hdist(o, v); if (d > 1.5 * AIC.column) { tel = 2; break; } if (d > 1.15 * AIC.column) tel = 3; }
     } else { tel = 1; a.state = 'idle'; }
     // under fire: zigzag ±zig° about the course every zigT s (not while combing a torpedo's track)
     if (a.under && a.state !== 'comb') {
@@ -4928,6 +5092,18 @@ const Ship = (() => {
     const A = a.avoid && now < a.avoid.until ? a.avoid : null;
     if (A) { hdg = a.want + A.off; if (A.slow) tel = Math.min(tel, a.state === 'comb' ? 4 : 1); }
     order(v, hdg, tel, F);
+  }
+  // ([WP10 review]) where a retreat from P heads: AI.away m from her, away from P or as near that as open water with a
+  // clear line to it lies (then any open water: a way round), within 120° of straight away
+  const AWAY = [0, 30, -30, 60, -60, 90, -90, 120, -120];
+  function awayPt(v, P) {
+    const me = ezOf(v, { e: 0, z: 0 }), p = ezOf(P, { e: 0, z: 0 }), de = me.e - p.e, dz = me.z - p.z, l = Math.hypot(de, dz) || 1, b0 = Math.atan2(dz / l, de / l);
+    if (!navOn()) return null;
+    for (const wide of [true, false]) for (const o of AWAY) {
+      const b = b0 + o * DEG, q = { e: me.e + Math.cos(b) * AIC.away, z: me.z + Math.sin(b) * AIC.away };
+      if (navCell(q.e, q.z) >= 0 && navOpen(q.e, q.z, true) && (!wide || navClear(me, q))) return simAt(q.e, q.z, 0, v3());
+    }
+    return null;
   }
   // a smoke screen: a cloud at her stern (Aim's smoke clouds: they hide her from eyes and seekers that look through smoke)
   function smokeAstern(v) {
@@ -4962,40 +5138,73 @@ const Ship = (() => {
       const ready = now >= a.born + 2 && now - a.gtAt >= 1; // (her guns laid after a moment: not on the frame she appears, nor still on the last target)
       // the naval guns: a salvo whenever they are laid and loaded; the automatic guns on the trigger (v.aimFire with their
       // system chosen), the machine guns too within 1.5 km
+      // ([WP10 review] nothing fired through a ship of her own side on the line of fire, at a ship or the shore: she
+      // holds it until the bearing opens)
+      const clear = gk === 'air' || !friendInLine(v, gt.def ? Combat.targetCentre(gt) : gt, AIC.ffW + 0.01 * D, 300, F);
       let n = 0;
-      if (ready) n = salvo(v, a.P, F);
+      if (ready && clear) n = salvo(v, a.P, F);
       if (n > 0) { a.salvoN++; a.fired += n; track(v, F, n); a.errAt = -9; }
       const ag = G.find((g) => !g.naval && live(v, g) && (gk === 'air' ? g.aa >= D : g.reach >= D));
       if (ag) { const i = Combat.systems(v).indexOf(ag.sys); if (i >= 0) v.wsel = i; }
       const laid = !!ag && ag.sys.parts.some((p) => !p.broken && p._err != null && p._err < 1.5 * DEG);
-      v.aimFire = !!ag && laid && ready;
-      v.mgFire = gk !== 'air' && D < 1500 && ready;
+      // ([WP10 review] at a ship or the shore her automatic guns and machine guns fire in bursts (AI.burst s, AI.burstOff s
+      // between) and only within AI.autoK of their reach: a 30 mm's 300 rounds last the fight, not its first minute;
+      // at aircraft, every round while it is in reach)
+      if (gk !== 'air' && now - a.burstAt >= sk(AIC.burst, a.skill) + AIC.burstOff) a.burstAt = now;
+      const burst = gk === 'air' || now - a.burstAt < sk(AIC.burst, a.skill);
+      v.aimFire = !!ag && laid && ready && clear && burst && (gk === 'air' || D <= AIC.autoK * ag.reach);
+      v.mgFire = gk !== 'air' && D < AIC.autoK * 1500 && ready && clear && burst;
     } else { v.aimFire = v.mgFire = false; a.tof = 0; }
-    // SAMs: at aircraft within AI.missile m at her skill, and at missiles homing on her or her side within 6 km, one in
-    // the air at each, one launch every 2 s
+    // SAMs: at aircraft within AI.missile m at her skill, and at missiles homing on her or her side within 6 km (the
+    // nearest first), one launch every 2 s. ([WP10 review] Her one fire-control channel: her tracking radar's lock guides
+    // the SAM in the air, so she takes no other target until it ends: two missiles in, she engages one, then the other)
     if (has(v, (w) => w.vls) && now - a.samAt >= 2) {
       a.sams = a.sams.filter((s) => !s.dead && Combat.S.shots.includes(s));
-      const busy = (t) => a.sams.some((s) => s.target === t);
-      let t = null;
-      for (const m of a.msl) if (!busy(m) && hdist(m, v) < 6000) { t = m; break; }
-      if (!t) { const mr = sk(AIC.missile, a.skill); for (const c of a.airs || []) if (c.d < mr && !busy(c.ref) && c.ref.kind !== 'drone') { t = c.ref; break; } }
-      if (t) { const s = samAt(v, t, F); if (s) { a.sams.push(s); a.samAt = now; } }
+      const L = v.trk && v.trk.lock, guiding = !!L && !L.dead && a.sams.some((s) => s.target === L);
+      if (!guiding) {
+        let t = null, bd = 6000;
+        for (const m of a.msl) { const d = hdist(m, v); if (d < bd) { bd = d; t = m; } }
+        if (!t) { const mr = sk(AIC.missile, a.skill); for (const c of a.airs || []) if (c.d < mr && c.ref.kind !== 'drone') { t = c.ref; break; } }
+        if (t) { const s = samAt(v, t, F); if (s) { a.sams.push(s); a.samAt = now; } }
+      }
     }
     // decoys: a missile homing on her within 8 km, or a torpedo running at her (every 5 s while one is)
     if ((a.msl.some((m) => m.target === v) || a.torp) && now - a.decoyAt >= 5) { a.decoyAt = now; decoy(v, F); }
     if (!T || !a.seen || a.retreat || now - a.tAt < sk(REACT, a.skill)) return; // (her missiles and torpedoes once she has looked at it a moment)
     // anti-ship missiles: within AI.asm m at her skill, every asmEvery s; two, a few seconds apart, at the best skill
-    if (a.asm2 != null && now >= a.asm2) { a.asm2 = null; asmAt(v, T, F); }
-    if (a.D <= sk(AIC.asm, a.skill) && a.D > 1200 && now - a.asmAt >= AIC.asmEvery && has(v, (w) => w.asm)) {
+    // ([WP10 review] neither through a ship of her side: a missile's or a torpedo's run held while one lies on it)
+    const mClear = () => !friendInLine(v, T.def ? Combat.targetCentre(T) : T, 2 * AIC.ffW, 500, F);
+    if (a.asm2 != null && now >= a.asm2) { a.asm2 = null; if (mClear()) asmAt(v, T, F); }
+    if (a.D <= sk(AIC.asm, a.skill) && a.D > 1200 && now - a.asmAt >= AIC.asmEvery && has(v, (w) => w.asm) && mClear()) {
       if (asmAt(v, T, F)) { a.asmAt = now; if (a.skill >= 0.85) a.asm2 = now + 3; }
     }
     // torpedoes: within torpR, every torpEvery s, torpN in a spread of ±torpSpread° about her intercept course
     if (a.D <= AIC.torpR && now - a.torpAt >= AIC.torpEvery && has(v, (w) => w.kind === 'torp')) {
       const b = torpCourse(v, T), n = AIC.torpN;
+      if (friendInLine(v, along(v, v.sh, b, AIC.torpR + 500, _ap), 2 * AIC.ffW + Math.tan(AIC.torpSpread * DEG) * AIC.torpR, 0, F)) return; // (a friend on the spread's way: again next think)
       let fired = 0;
       for (let i = 0; i < n; i++) if (torpAt(v, b + (n > 1 ? (-1 + (2 * i) / (n - 1)) : 0) * AIC.torpSpread * DEG, F)) fired++;
       if (fired) a.torpAt = now; else a.torpAt = now - AIC.torpEvery + 5; // (no tube faced it: again in 5 s)
     }
+  }
+  // ([WP10 review]) a craft of her own side (a ship afloat, or a vehicle on the ground: not an aircraft overhead) within w
+  // m of her line of fire to P (along the sea: its way out to P and `beyond` m past it, where a round falls long), or null
+  function friendInLine(v, P, w, beyond, F) {
+    if (!F || !F.vessels || !P) return null;
+    const r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r, side = teamOf(v);
+    let dx = P.x - v.x, dy = P.y - v.y, dz = P.z - v.z;
+    const k = dx * ux + dy * uy + dz * uz; dx -= ux * k; dy -= uy * k; dz -= uz * k;
+    const D = Math.hypot(dx, dy, dz) || 1; dx /= D; dy /= D; dz /= D;
+    for (const o of F.vessels) {
+      if (o === v || o === P || o.dead || o.wreck || o.fate || o.isDebris || o.hulk != null || o.remote || !o.parts.length || o.body !== v.body || o.carrier === v) continue;
+      if (!(o.sh ? o.afloat : isGround(o.kind) || o.landed) || teamOf(o) !== side) continue;
+      let ox = o.x - v.x, oy = o.y - v.y, oz = o.z - v.z;
+      const ko = ox * ux + oy * uy + oz * uz; ox -= ux * ko; oy -= uy * ko; oz -= uz * ko;
+      const al = ox * dx + oy * dy + oz * dz;
+      if (al < 0 || al > D + beyond) continue;
+      if (Math.hypot(ox - dx * al, oy - dy * al, oz - dz * al) < w + (o.reach || 10)) return o;
+    }
+    return null;
   }
   // the course (bearing) a torpedo at its speed meets target t on, at its velocity now
   function torpCourse(v, t) {
@@ -5065,6 +5274,7 @@ const Ship = (() => {
     if (AIS.R && F.active && AIS.R.me !== (F.active.carrier || F.active)) aiReset(F); // (a flight begun again, or another craft taken: the range starts afresh)
     rangeFrame(F, dt);
     if (!(dt > 0)) return;
+    if (!navOn() && ((AIS.R && AIS.R.mode === 'hostile') || AIS.ships.some((v) => v.ai && v.ai.role === 'fight'))) navStep(NV.slice); // ([WP10 review] the sea's lattice for their ways, a slice a frame)
     let gone = 0;
     for (const v of AIS.ships) {
       const a = v.ai;
@@ -5123,6 +5333,7 @@ const Ship = (() => {
       const want = rangeWanted(F), R = AIS.R, me = F.active && (F.active.carrier || F.active);
       if (R && (want !== R.mode || R.me !== me)) aiReset(F);
       if (!AIS.R && want) rangeStart(F, want);
+      if (AIS.R) for (const v of AIS.R.mine) if (v.dead || !F.vessels.includes(v)) AIS.R.mine.delete(v); // ([WP10 review] the sunk and gone let go)
     }
     const R = AIS.R;
     if (R && dt > 0) {
@@ -5130,16 +5341,27 @@ const Ship = (() => {
       for (let i = R.dead.length; i--;) {
         const d = R.dead[i];
         if (now < d.at) continue;
-        R.dead.splice(i, 1);
-        if (d.role === 'loop' && d.loop) { const L = d.loop, k = farPt(F, L); const v = aiSpawn(F, d.key, { e: L.e + Math.sin(k.t) * L.r, z: L.z + Math.cos(k.t) * L.r, yaw: k.yaw }, { role: 'loop', loop: { ...L, wp: (k.i + 1) % LOOPN } }); if (v) R.mine.add(v); }
-        else if (d.role === 'passive') hulk(F, R);
+        // ([WP10 review] back only where nothing lies (her own wreck still going down, the player's ship): else again in 5 s)
+        const v = d.role === 'loop' && d.loop ? loopBack(F, d) : d.role === 'passive' ? hulk(F, R) : null;
+        if (v) { if (d.role === 'loop') R.mine.add(v); R.dead.splice(i, 1); }
+        else if (d.role === 'loop' || d.role === 'passive') d.at = now + 5;
+        else R.dead.splice(i, 1);
       }
       if (R.mode === 'hostile' && !F.destroyed) {
         if (!R.left.length && now >= R.waveAt) nextWave(F, R);
+        // ([WP10 review] the range's controller calls her place to the wave until one of its ships sees her)
+        if (R.left.length && now >= R.callAt) {
+          R.callAt = now + RANGE.call;
+          const me = F.active && (F.active.carrier || F.active);
+          if (me && !me.fate && !me.dead && !R.left.some((o) => o.ai && o.ai.seen && o.ai.tgt === me)) { // (never to a ship already going down)
+            const P = ezOf(me, { e: 0, z: 0 }), C = R.left[0].ai && R.left[0].ai.course, c2 = C ? [{ e: P.e, z: P.z }, ...C.slice(1)] : null;
+            if (c2) for (const o of R.left) if (o.ai && o.ai.course) { o.ai.course = c2; o.ai.wp = 0; }
+          }
+        }
         R.strikers = R.strikers.filter((o) => !o.dead && o.ai && !o.ai.down && o.control);
         if (R.wave >= 2 && now >= R.strikeAt) {
           R.strikeAt = now + STR.every;
-          if (R.strikers.length < STR.max) { const s = spawnStriker(F); if (s) { R.strikers.push(s); say(F, 'Strike aircraft inbound!', 'warn'); } }
+          if (R.strikers.length < STR.max) { const s = spawnStriker(F, Math.min(0.9, 0.1 + 0.1 * R.wave)); if (s) { R.strikers.push(s); const me = F.active, P = me ? ezOf(me, { e: 0, z: 0 }) : null, Q = ezOf(s, { e: 0, z: 0 }); say(F, P ? `Strike aircraft inbound from the ${compass(P, Q)}, ${fmt.dist(Math.hypot(Q.e - P.e, Q.z - P.z))} out!` : 'Strike aircraft inbound!', 'warn'); } }
         }
       }
     }
@@ -5153,46 +5375,126 @@ const Ship = (() => {
     const t = (bi / LOOPN) * TAU * (L.dir || 1), n = ((bi + 1) / LOOPN) * TAU * (L.dir || 1), de = Math.sin(n) - Math.sin(t), dz = Math.cos(n) - Math.cos(t);
     return { t, i: bi, yaw: Math.atan2(-dz, de) };
   }
+  // ([WP10 review]) nothing within RANGE.clear m of (e, z): no craft afloat or ashore there (a wreck going down counts
+  // until she is 20 m under), the player's ship included
+  function spotClear(F, e, z) {
+    const P = simAt(e, z, 0, _aq), c2 = RANGE.clear * RANGE.clear;
+    for (const o of F.vessels) {
+      if (o.dead || !o.parts || !o.parts.length || o.body !== EARTH) continue;
+      if ((o.x - P.x) ** 2 + (o.y - P.y) ** 2 + (o.z - P.z) ** 2 > c2) continue;
+      if (o.sh && Math.hypot(o.x, o.y, o.z) - EARTH.radius < -20) continue; // (gone under)
+      return false;
+    }
+    return true;
+  }
+  // the moored hulk, at its spot or, with something there, 700 m off it (six ways round); null: nowhere clear yet
+  const HULK_OFF = [null, 0, 60, 120, 180, 240, 300];
   function hulk(F, R) {
-    const N = NR(), H = N.hulk, v = H && aiSpawn(F, H.key, { e: H.e, z: H.z, yaw: H.yaw }, { role: 'passive', skill: 0 });
-    if (v) { R.mine.add(v); v.name = `${v.name} (hulk)`; }
-    return v;
+    const N = NR(), H = N.hulk;
+    if (!H) return null;
+    for (const o of HULK_OFF) {
+      const e = o == null ? H.e : H.e + Math.cos(o * DEG) * 700, z = o == null ? H.z : H.z + Math.sin(o * DEG) * 700;
+      if (!spotClear(F, e, z) || (navOn() && !navOpen(e, z))) continue;
+      const v = aiSpawn(F, H.key, { e, z, yaw: H.yaw }, { role: 'passive', skill: 0 });
+      if (v) { R.mine.add(v); v.name = `${v.name} (hulk)`; }
+      return v;
+    }
+    return null;
+  }
+  // a Practice loop's ship back at its far point from the player (or the next point of the loop with nothing there)
+  function loopBack(F, d) {
+    const L = d.loop, k = farPt(F, L);
+    for (let j = 0; j < LOOPN; j++) {
+      const i = (k.i + j) % LOOPN, t = (i / LOOPN) * TAU * (L.dir || 1), n = ((i + 1) / LOOPN) * TAU * (L.dir || 1), e = L.e + Math.sin(t) * L.r, z = L.z + Math.cos(t) * L.r;
+      if (!spotClear(F, e, z)) continue;
+      return aiSpawn(F, d.key, { e, z, yaw: Math.atan2(-(Math.cos(n) - Math.cos(t)), Math.sin(n) - Math.sin(t)) }, { role: 'loop', loop: { ...L, wp: (i + 1) % LOOPN } });
+    }
+    return null;
   }
   // The Naval Range on: Practice, the hulk and the three loops' ships; Hostile, the first wave in RANGE.first s
   function rangeStart(F, mode) {
     if (mpLive() || !F || !F.vessels) return false;
     const N = NR(), now = clockOf(F);
     AIS.rnd = typeof mulberry32 === 'function' ? mulberry32(5150 + ((now * 10) | 0)) : Math.random;
-    const R = (AIS.R = { mode, me: F.active.carrier || F.active, kos: 0, best: 0, wave: 0, waveAt: now + RANGE.first, strikeAt: Infinity, left: [], dead: [], strikers: [], mine: new Set() });
+    const R = (AIS.R = { mode, me: F.active.carrier || F.active, kos: 0, best: 0, wave: 0, waveAt: now + RANGE.first, strikeAt: Infinity, callAt: Infinity, left: [], dead: [], strikers: [], mine: new Set() });
+    AIS.last = null; // ([WP10 review] the last range's tally, kept for the end screen once it is reset: Ship.tally)
     if (mode === 'practice') {
-      hulk(F, R);
+      const h = hulk(F, R);
       for (const L of N.loops) {
         const k = farPt(F, L), v = aiSpawn(F, L.key, { e: L.e + Math.sin(k.t) * L.r, z: L.z + Math.cos(k.t) * L.r, yaw: k.yaw }, { role: 'loop', loop: { ...L, wp: (k.i + 1) % LOOPN } });
         if (v) R.mine.add(v);
       }
-      say(F, 'Naval Range: a hulk 2 km ahead and three ships under way · they never shoot back', 'info');
-    } else say(F, `Hostile naval range: the first ships come from the east in ${RANGE.first} s`, 'warn');
+      // ([WP10 review] where the hulk really is from her: distance and bearing)
+      const me = ezOf(R.me, { e: 0, z: 0 }), H = h ? ezOf(h, { e: 0, z: 0 }) : { e: N.hulk.e, z: N.hulk.z };
+      say(F, `Naval Range: a hulk ${fmt.dist(Math.hypot(H.e - me.e, H.z - me.z))} to the ${compass(me, H)} and three ships under way · they never shoot back`, 'info');
+    } else say(F, `Hostile naval range: the first ships come in ${RANGE.first} s`, 'warn');
     AIS.barKey = ''; bar(F);
     return true;
   }
-  // A Hostile wave from the east: wave n's ships (RANGE.waves; from the fifth, the Arley Berk and the Olivar Perri and one
-  // more each wave to four), skill 0.1 + 0.1 n (to 0.9), line abreast at N.hostile (or 10 km east of the player, if she is
-  // further west than that: they never take a quarter of an hour to come), heading west, the first leading and the rest
-  // in column astern of the one before; their course to where the player was when they set out (the range's call), then
-  // round the range
+  // ([WP10 review]) the compass point from a to b ({ e, z }: game north is −z)
+  const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+  function compass(a, b) { const t = Math.atan2(b.e - a.e, -(b.z - a.z)); return COMPASS[((Math.round(t / (Math.PI / 4)) % 8) + 8) % 8]; }
+  // ([WP10 review]) where a wave comes in, d m from her at P ({ e, z }): open water east of her with a way by sea to her no
+  // longer than RANGE.near × d, else the nearest bearing to east that has one; failing that (her other side of an island)
+  // the bearing with the shortest way in, no longer than RANGE.detour × d (round the island, not the long way about it).
+  // { e, z, way } or null (off the sea's lattice, or it isn't built)
+  const SPOTS = [0, 20, -20, 40, -40, 60, -60, 80, -80, 100, -100, 120, -120, 140, -140, 160, -160, 180];
+  function waveSpot(P, d) {
+    if (!navOn()) return null;
+    let best = null, bl = RANGE.detour * d;
+    for (const o of SPOTS) {
+      const b = o * DEG, q = { e: P.e + Math.cos(b) * d, z: P.z + Math.sin(b) * d };
+      if (navCell(q.e, q.z) < 0 || !navOpen(q.e, q.z, true)) continue;
+      const way = navClear(q, P) ? [{ e: P.e, z: P.z }] : navPath(q, P), L = way ? pathLen(q, way) : Infinity;
+      if (L <= RANGE.near * d) return { e: q.e, z: q.z, way }; // (nearly straight in: the first such from the east)
+      if (L < bl) { bl = L; best = { e: q.e, z: q.z, way }; } // (else the shortest way in, within RANGE.detour)
+    }
+    return best;
+  }
+  // a stock ship's masthead over the water (m): measured once, from one afloat (aiSpawn keeps it too)
+  function tplTop(key) {
+    const T = aiTpl(key);
+    if (!T) return 30;
+    if (T.top == null) { const v = aiBuild(T); if (v && v.sh && v.sh.rings.length) { v.placeOnSurface(EARTH, siteAngle(EARTH, NR().e), 0, 0, 0); launch(v, { e: NR().e, z: 0, yaw: 0 }); T.top = topOf(v, _ot).h; } else T.top = 30; }
+    return T.top;
+  }
+  // A Hostile wave: wave n's ships (RANGE.waves; from the fifth, the Arley Berk and the Olivar Perri and one more each wave
+  // to four), skill 0.1 + 0.1 n (to 0.9). ([WP10 review]) It comes in out of sight but not far beyond it (RANGE.margin m
+  // past the horizon between her masthead and its tallest, within RANGE.spawn), from the east where the sea allows
+  // (waveSpot), in column astern of the first along its way to her, at Flank; its course to where she is (the range's
+  // controller calls it again every RANGE.call s until it sees her), then round the range. Off the sea's lattice: from
+  // the east as before (at N.hostile, or 10 km east of her if she is further west than that)
   function nextWave(F, R) {
     const N = NR(), H = N.hostile, n = ++R.wave, W = RANGE.waves, base = W[Math.min(n, W.length) - 1], cnt = n < 5 ? base.length : Math.min(4, 2 + (n - 5));
-    const me = F.active && (F.active.carrier || F.active), P = me ? ezOf(me, { e: N.e, z: 0 }) : { e: N.e, z: 0 }, e0 = clamp(P.e + 10000, N.e, H.e);
+    const me = F.active && (F.active.carrier || F.active), P = me ? ezOf(me, { e: N.e, z: 0 }) : { e: N.e, z: 0 };
     const keys = base.slice(0, cnt), s = Math.min(0.9, 0.1 + 0.1 * n), course = [{ e: P.e, z: P.z }, { e: N.e, z: 0 }, { e: N.e - 4000, z: 2500 }, { e: N.e + 4000, z: -2500 }];
+    const hMe = me ? topOf(me, _eye).h : 10, hW = Math.max(...keys.map(tplTop)), Rr = EARTH.radius;
+    const d = clamp(Math.sqrt(2 * Rr * Math.max(0.5, hMe)) + Math.sqrt(2 * Rr * Math.max(0.5, hW)) + RANGE.margin, RANGE.spawn[0], RANGE.spawn[1]);
+    const sp = waveSpot(P, d);
+    let e0, z0, ue, uz;
+    if (sp) { e0 = sp.e; z0 = sp.z; const w = sp.way[0], l = Math.hypot(w.e - e0, w.z - z0) || 1; ue = (w.e - e0) / l; uz = (w.z - z0) / l; }
+    else { e0 = clamp(P.e + 10000, N.e, H.e); z0 = H.z; ue = -1; uz = 0; }
+    const yaw = Math.atan2(-uz, ue);
+    // (the column where nothing lies: the last wave's wrecks still afloat there, say; else moved RANGE.clear × 2.5 m to
+    // one side or the other, up to three times)
+    let off = 0;
+    for (const k of [0, 1, -1, 2, -2, 3, -3]) {
+      off = k * 2.5 * RANGE.clear;
+      if (keys.every((_, i) => spotClear(F, e0 - ue * i * AIC.column - uz * off, z0 - uz * i * AIC.column + ue * off))) break;
+    }
+    e0 -= uz * off; z0 += ue * off;
     R.left = [];
     let lead = null;
     keys.forEach((key, i) => {
-      const z = H.z + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * H.gap;
-      const v = aiSpawn(F, key, { e: e0, z, yaw: H.yaw }, { role: 'fight', skill: s, wave: n, slot: i, lead, course });
+      const e = e0 - ue * i * AIC.column, z = z0 - uz * i * AIC.column; // (in column astern of the first)
+      const v = aiSpawn(F, key, { e, z, yaw }, { role: 'fight', skill: s, wave: n, slot: i, lead, course });
       if (v) { R.left.push(v); R.mine.add(v); lead = v; }
     });
-    if (R.wave === 2 && !Number.isFinite(R.strikeAt)) R.strikeAt = clockOf(F) + 40;
-    say(F, `Wave ${n}: ${R.left.length} ship${R.left.length === 1 ? '' : 's'} from the east`, 'warn');
+    const now = clockOf(F);
+    R.callAt = now + RANGE.call;
+    if (R.wave === 2 && !Number.isFinite(R.strikeAt)) R.strikeAt = now + 40;
+    const Lp = R.left[0] ? ezOf(R.left[0], { e: 0, z: 0 }) : { e: e0, z: z0 };
+    say(F, `Wave ${n}: ${R.left.length} ship${R.left.length === 1 ? '' : 's'} from the ${compass(P, Lp)}, ${fmt.dist(Math.hypot(Lp.e - P.e, Lp.z - P.z))} off`, 'warn');
   }
   // everything the range put out, gone (its ships, wrecks and all, and its strike aircraft); the bar hidden
   function aiReset(F) {
@@ -5200,15 +5502,22 @@ const Ship = (() => {
     for (const v of AIS.ships) if (!R || R.mine.has(v)) v.dead = true;
     if (R) { for (const v of R.mine) if (!(F && v === F.active)) v.dead = true; for (const v of R.strikers) v.dead = true; }
     for (const v of AIS.strikers) v.dead = true;
+    if (R) AIS.last = { me: R.me, kos: R.kos, best: R.best };
     AIS.ships = AIS.ships.filter((v) => !v.dead); AIS.strikers = []; AIS.R = null; AIS.chkT = 0;
     bar(F || {});
+  }
+  // ([WP10 review]) the Naval Range's tally for this flight's craft (the end screen's "Ships sunk"): { kos, best }, or null
+  // when no range ran for it
+  function tally(F) {
+    const R = AIS.R || AIS.last, me = F && F.active && (F.active.carrier || F.active);
+    return R && me && R.me === me ? { kos: R.kos, best: R.best } : null;
   }
 
   // ---- strike aircraft (from wave 2: one every STRIKE.every s, STRIKE.max at once): the stock Striker, flown in from the
   // east at STRIKE.alt m, down to STRIKE.low m for the last STRIKE.lowR m, its bombs let go where they will fall on the
   // ship (about STRIKE.rel m out at its speed), away and round again; out of bombs, a strafing run with its cannon and
   // rockets. A bandit to everyone else (Combat.isFighter: shot at, locked, marked as one), flown here (ai.strike)
-  function spawnStriker(F) {
+  function spawnStriker(F, skill = 0.5) {
     const T = aiTpl('striker'), me = F.active;
     if (!T || !me) return null;
     const ps = partsFromDesign(T.rows), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps);
@@ -5229,7 +5538,8 @@ const Ship = (() => {
     v.q = qbasis(nx, f, cross3(nx, f));
     v.av = v3();
     v.vx = f.x * 200; v.vy = f.y * 200; v.vz = f.z * 200;
-    v.ai = { t: 0, down: false, strike: true, ph: 'in', relAt: -9, runs: 0 };
+    v.ai = { t: 0, down: false, strike: true, ph: 'in', relAt: -9, runs: 0, skill: clamp(skill, 0, 1), relErr: 0 };
+    v.ai.relErr = relErr(v.ai);
     F.vessels.push(v);
     AIS.strikers.push(v);
     return v;
@@ -5254,7 +5564,7 @@ const Ship = (() => {
       const bombs = v.parts.filter((p) => p.def.weapon && p.def.weapon.kind === 'bomb' && p.ammo > 0 && !p.broken);
       if (ai.ph === 'out') { // (away, climbing, then round again from 4 km)
         altWant = STR.alt; want.x = -gx; want.y = -gy; want.z = -gz;
-        if (gd > 4000 && now - ai.relAt > 6) { ai.ph = 'in'; ai.runs++; }
+        if (gd > 4000 && now - ai.relAt > 6) { ai.ph = 'in'; ai.runs++; ai.relErr = relErr(ai); }
       } else {
         // the bombs' fall from here (its sink and the rack's 2 m/s push in it; no drag: a short drop) and where they would
         // land, against where the ship will be then
@@ -5264,8 +5574,8 @@ const Ship = (() => {
         altWant = gd > STR.lowR ? STR.alt : STR.low;
         want.x = gx + TVx; want.y = gy + TVy; want.z = gz + TVz; // (at where the ship will be)
         if (bombs.length) {
-          if (gd < STR.lowR * 1.2 && sAlong <= 15 && sAlong > -80 && sLat < 60 && alt < STR.low * 2.5) { // (they fall on her: both let go)
-            for (const p of bombs) dropBombs(v, p, F);
+          if (gd < STR.lowR * 1.2 && sAlong <= 15 + ai.relErr && sAlong > -80 && sLat < 60 && alt < STR.low * 2.5) { // (it falls on her, give or take its error this pass: [WP10 review] one bomb a pass)
+            dropBombs(v, bombs[0], F);
             ai.relAt = now; ai.ph = 'out'; ai.relD = gd;
           } else if (sAlong < -80 && gd < STR.lowR) { ai.ph = 'out'; ai.relAt = now; } // (overshot: round again)
         } else { // (strafing: the cannon on her within 1.2 km, the rockets within 1.8 km, nose on; pull off at 500 m)
@@ -5310,10 +5620,12 @@ const Ship = (() => {
     // flares or chaff against a missile on its tail
     if ((ai.flareT = (ai.flareT || 0) - dt) <= 0 && typeof Combat !== 'undefined') for (const m of Combat.S.shots) if (m.k === 'missile' && m.target === v && hdist(m, v) < 1800) { if (Combat.countermeasures(v, F)) ai.flareT = 0.7; break; }
   }
-  // a pair of bombs off one rack (its two sides) or one
+  // ([WP10 review]) one bomb off a rack: a pass a small ship can live through, or dodge
   function dropBombs(v, p, F) {
-    for (let i = 0; i < 2 && p.ammo > 0; i++) if (typeof Combat !== 'undefined' && Combat.dropBomb) Combat.dropBomb(v, p, F);
+    if (p && p.ammo > 0 && typeof Combat !== 'undefined' && Combat.dropBomb) Combat.dropBomb(v, p, F);
   }
+  // ([WP10 review]) how far off its release is this pass (m along its run: + short, − long), about STRIKE.err at its skill
+  function relErr(ai) { const r = AIS.rnd() + AIS.rnd() + AIS.rnd() - 1.5; return clamp(2 * r * sk(STR.err, ai.skill || 0), -60, 60); }
 
   // ---- the bar (GroundAI's style: the time warp's place at the top): "Naval Range: 2 sunk · best shot 6.2 km" over
   // "Hostile · wave 3 · 2 ships left"
@@ -5326,6 +5638,7 @@ const Ship = (() => {
       root.append(main, sub);
       ($('#flight-ui') || document.body).append(root);
       AIS.bar = { root, main, sub };
+      if (typeof Flight !== 'undefined' && Flight._alP && Flight._alP.ro) Flight._alP.ro.observe(root); // (the alert line placed again as it grows)
     }
     const E = AIS.bar, now = clockOf(F), N = R.left.length;
     const main = `Naval Range: ${R.kos} sunk|${R.best ? `best shot ${fmt.dist(R.best)}` : ''}`;
@@ -5334,17 +5647,37 @@ const Ship = (() => {
     else sub = 'Practice · they don’t shoot back';
     const key = `${main}|${sub}`;
     if (E.root.hidden) E.root.hidden = false;
-    warp(true);
-    if (key === AIS.barKey) return;
-    AIS.barKey = key;
-    const [a, b] = main.split('|');
-    E.main.textContent = '';
-    E.main.append(el('span', { text: a }));
-    if (b) E.main.append(el('span', { class: 'gai-best' }, el('i', { text: ' · ' }), b));
-    E.sub.textContent = '';
-    sub.split(' · ').forEach((q, i) => { if (i) E.sub.append(' · '); E.sub.append(el('span', { text: q })); });
+    // ([WP10 review] the time warp stays, the bar under it, but for a Hostile wave's ship within RANGE.warpR m or with
+    // her in its weapons' reach, or a strike aircraft within RANGE.strikeR m (enemyNear): then 1×, the bar in its place
+    // (the Tank Range's way); the physics' warp at most while a wave is out, as its ships aren't put on rails)
+    const hold = R.mode === 'hostile' && enemyNear(F, R);
+    warp(hold);
+    E.root.classList.toggle('under-warp', !hold);
+    const PW = typeof PHYS_WARP_MAX !== 'undefined' ? PHYS_WARP_MAX : 3;
+    if (!hold && R.mode === 'hostile' && R.left.length && typeof Flight !== 'undefined' && F === Flight && Flight.warpIdx > PW && Flight.setWarp) Flight.setWarp(PW);
+    if (key !== AIS.barKey) {
+      AIS.barKey = key;
+      const [a, b] = main.split('|');
+      E.main.textContent = '';
+      E.main.append(el('span', { text: a }));
+      if (b) E.main.append(el('span', { class: 'gai-best' }, el('i', { text: ' · ' }), b));
+      E.sub.textContent = '';
+      sub.split(' · ').forEach((q, i) => { if (i) E.sub.append(' · '); E.sub.append(el('span', { text: q })); });
+    }
+    // (under the warp, the toasts go under it: its bottom on the screen, as it grows a line or the HUD's size changes)
+    if (!hold) { const r = E.root.getBoundingClientRect(), nb = r.height > 0 ? `${Math.round(r.bottom + 8)}px` : ''; if (nb && AIS.nb !== nb) { AIS.nb = nb; document.body.style.setProperty('--naval-b', nb); } }
   }
-  // the bar takes the time warp's place (as the Tank Range's does)
+  // ([WP10 review]) a Hostile wave's ship within RANGE.warpR m of her, or that sees her within her main weapon's reach (an
+  // Osca's missiles, a Cyclon's 30 mm: one that only sees her coming leaves the warp to the player); a strike aircraft
+  // within RANGE.strikeR
+  function enemyNear(F, R) {
+    const me = F && F.active && (F.active.carrier || F.active);
+    if (!me) return false;
+    for (const o of R.left) if (!o.dead && o.ai && !o.ai.down && ((o.ai.seen && o.ai.tgt === me && o.ai.D <= (o.ai.reach || 0)) || hdist(o, me) < RANGE.warpR)) return true;
+    for (const o of R.strikers) if (!o.dead && o.ai && !o.ai.down && hdist(o, me) < RANGE.strikeR) return true;
+    return false;
+  }
+  // the bar takes the time warp's place (as the Tank Range's does) while it is held
   function warp(hide) {
     const w = typeof document !== 'undefined' && typeof $ === 'function' && $('#warp');
     if (!w) return;
@@ -5388,11 +5721,12 @@ const Ship = (() => {
     hud, help, keys,
     // ai
     aiDown, flyStriker, range: rangeFrame, practice, battle: null,
-    aiSpawn, aiFrame, aiReset, rangeStart, spawnStriker, // [WP10] (a computer's ship; the AI's frame, from Combat.frame with no ship afloat; the range)
+    aiSpawn, aiFrame, aiReset, rangeStart, spawnStriker, tally, // [WP10] (a computer's ship; the AI's frame, from Combat.frame with no ship afloat; the range; [WP10 review] its tally for the end screen)
     aiSeed(n) { AIS.rnd = typeof mulberry32 === 'function' ? mulberry32(n) : Math.random; }, // (the AI's dice: the tests')
     get aiOn() { return !!(AIS.R || AIS.ships.length || AIS.strikers.length || (AIS.bar && !AIS.bar.root.hidden)); }, // (anything of the AI's still out, or its bar up)
     get naval() { return AIS.R; }, get aiShips() { return AIS.ships; }, get strikers() { return AIS.strikers; }, // (the Naval Range's state, the computer's ships, the strike aircraft)
-    _ai: { seaSeen: (v, F) => seaSeen(v, F, []), airSeen: (v, F) => airSeen(v, F, []), shoreSeen: (v, F, R) => shoreSeen(v, F, R, []), think, look, sense: (v, F) => sense(v, F, clockOf(F)), weapons: (v, F) => weapons(v, F, clockOf(F)), gunsOf, reachOf, seeRange, torpCourse, simAt, ezOf, bearingTo }, // (the tests')
+    _ai: { seaSeen: (v, F) => seaSeen(v, F, []), airSeen: (v, F) => airSeen(v, F, []), shoreSeen: (v, F, R) => shoreSeen(v, F, R, []), think, look, sense: (v, F) => sense(v, F, clockOf(F)), weapons: (v, F) => weapons(v, F, clockOf(F)), gunsOf, reachOf, seeRange, torpCourse, simAt, ezOf, bearingTo,
+      navStep, navOn, navPath, navClear, navOpen, waveSpot, friendInLine, enemyNear: (F) => !!AIS.R && enemyNear(F, AIS.R), nav: NAVS }, // (the tests')
     // mp
     snap, unsnap, ghost, downSea, onDownSea, cleanHoles,
   };

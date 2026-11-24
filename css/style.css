@@ -750,6 +750,13 @@ kbd {
   .gai-best i { display: inline; }
   .gai-sub { text-align: center; }
 }
+/* [WP10 review] the Naval Range's bar under the time warp while the warp shows (it takes the warp's place only while a
+   Hostile wave is on her: ship.js bar) */
+#naval-bar.under-warp { top: calc(56px + var(--safe-t)); }
+@media (max-width: 760px) { #naval-bar.under-warp { top: calc(100px + var(--safe-t)); } }
+@media (max-height: 500px) { #naval-bar.under-warp { top: calc(52px + var(--safe-t)); } }
+/* (and the toasts under it, as it grows: its bottom on the screen, --naval-b, ship.js bar) */
+body:has(#naval-bar.under-warp:not([hidden])) .toasts { top: var(--naval-b, calc(112px + var(--safe-t))); }
 
 /* ================================================================== multiplayer */
 .home-btn.mp-btn { border-color: rgba(98, 208, 255, 0.55); }
@@ -1177,6 +1184,7 @@ body.flying:not(.mapping) :is(.ammo-chip, .gmap, .ammo-stack, .gbtn) { --panel: 
   /* the sight's zero, left of the minimap (the thumbs' buttons fill the bottom) */
   .g-range { left: auto; transform: none; bottom: auto; right: calc(var(--gut-r) + 122px); top: calc(98px + var(--safe-t)); }
   body:has(#mp-bar.flight:not([hidden])) .g-range, body:has(#gai-bar:not([hidden])) .g-range, body:has(#naval-bar:not([hidden])) .g-range { top: calc(140px + var(--safe-t)); }
+  body:has(#naval-bar.under-warp:not([hidden])) .g-range { top: max(calc(140px + var(--safe-t)), var(--gmap-t, 0px)); } /* ([WP10 review] under the bar under the warp) */
 }
 @media (max-width: 760px) and (max-height: 700px) {
   body.ground #btn-fire { width: 76px; height: 76px; right: calc(var(--gut-r) + 2px); bottom: calc(18px + var(--safe-b)); }
