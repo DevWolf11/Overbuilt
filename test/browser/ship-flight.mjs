@@ -423,12 +423,13 @@ for (const vp of [[390, 844, true], [1280, 720, false]]) {
 //    track dashed red in the aim view; one of her own: its run drawn solid;
 //  - a missile coming in: "Missile inbound · …" from her radars, and nothing once they are knocked out (no magic radar);
 //  - a magazine with a fire at it; a ship of theirs we doomed: SUNK in the aim view;
-//  - the holes as scorched patches on her skin (Render3D's decals); her aim camera framing her whole as she sets out, its
-//    zoom out to her length and in to 7 m;
+//  - the holes as scorched patches on her skin (Render3D's decals): two shells' by her forward gun, the one on her
+//    forecastle on the screen from aft on every screen, the one in her side from abeam on a desktop; her aim camera
+//    framing her whole as she sets out, its zoom out to her length and in to 7 m;
 //  - her sounds (the telegraph's bell, the engines' level by the telegraph).
 // Then the follow camera as an unarmed ship sets out (the RIB close, the Cyclon whole) and the bridge view in a Rough sea
 // (the RIB on a phone, the Cyclon on a desktop): the eye never inside her, over the wave at it; and a
-// phone's sinking: the diagram filling, ABANDON SHIP. Screenshots: ship-hud-*, ship-flooding-*, ship-holes-*,
+// phone's sinking: the diagram filling, ABANDON SHIP. Screenshots: ship-hud-*, ship-flooding-*, ship-holes-* (ship-holes-side-*),
 // ship-torpedo-*, ship-torprun-*, ship-sunk-banner-*, ship-bridge-rough-*, ship-sink-phone-*.
 const strokes = () => { // (the canvas's strokes from now on, their colour and dash: the torpedo lines; and its words)
   const P = CanvasRenderingContext2D.prototype, st = P.stroke, ft = P.fillText;
@@ -491,18 +492,40 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   await page.evaluate(() => {
     const v = Flight.active, S = v.sh, c0 = S.comps[Math.floor(S.comps.length / 2)], c1 = S.comps[1], rows = [];
     for (const c of [c0, c1]) { const p = c.p, x = (c.lo + c.hi) / 2, P = partPt(p, x, 0); rows.push([p, P.x, P.y - 1.5, partZ(p) + 6, 0.5]); }
-    { const p = c0.p, P = partPt(p, (c0.lo + c0.hi) / 2 + 3, 0); rows.push([p, P.x, P.y + p.def.h * 0.3, partZ(p) + 6, 0.3]); } // (and a shell's, over the waterline: its scorch in sight)
+    // (and two shells' over the waterline by her forward gun, where her aim camera can see them: one in her starboard side
+    // 20 m aft of it, one on her forecastle 8 m aft of it)
+    const gun = v.aimed.reduce((a, q) => (((q.def.weapon && q.def.weapon.cal) || 0) > ((a && a.def.weapon && a.def.weapon.cal) || 0) ? q : a), null), gx = gun ? gun.x : v.com.x;
+    const near = (x) => { const off = (q) => { const R = partRect(q); return Math.max(R.l - x, x - R.r, 0); }; const p = S.hulls.reduce((a, q) => (off(q) < off(a) ? q : a)), R = partRect(p); return { p, R, x: clamp(x, R.l + 1, R.r - 1) }; };
+    { const h = near(gx - 20); rows.push([h.p, h.x, h.R.t - 1.5, partZ(h.p) + 6, 0.5]); }
+    { const h = near(gx - 8); rows.push([h.p, h.x, h.R.t + 1, partZ(h.p), 0.5]); }
     Ship.addHoles(v, rows, Flight.time);
+    // the aim along a direction D (sim: its level part), pitch rad, the camera dist m back
+    window.__aimDir = async (D, pitch, dist) => {
+      const k = App.H / 2 / Math.tan((25 * Math.PI) / 180); Flight.scale = k / dist;
+      const r = Math.hypot(v.x, v.y, v.z), ux = v.x / r, uy = v.y / r, uz = v.z / r, el = Math.hypot(ux, uy), ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux;
+      Flight.aimYaw = Math.atan2(-(D.x * nx + D.y * ny + D.z * nz), D.x * ex + D.y * ey); Flight.aimPitch = pitch; await window.__simWait(0.4, true);
+    };
+    // the scorches drawn last frame: where on the screen, whether on it, how upright their face (1: a deck's, 0: a side's)
+    window.__scorches = () => { const D = (Render3D.gfx() || {}).decals || [], c = Flight.camAbs, r = Math.hypot(v.x, v.y, v.z);
+      return D.filter((d) => d.k >= 1).map((d) => { const q = Render3D.project(c.x + d.x, c.y + d.y, c.z + d.z); return { x: Math.round(q.x), y: Math.round(q.y), up: +((d.n[0] * v.x + d.n[1] * v.y + d.n[2] * v.z) / r).toFixed(2), on: !q.behind && q.x > 0 && q.x < innerWidth && q.y > 0 && q.y < innerHeight }; }); };
     const eng = v.parts.find((q) => q.def.engine); if (eng) eng.fire = 1;
   });
   await page.evaluate(() => window.__simWait(1.5, true)); await frames(page, 2);
   const f1 = await hudOf(page);
   await shot(page, `flooding-${sz}`);
   ok(`${tag}flooding: the water in (${f1.W.toFixed(1)} m³), the diagram redrawn with it, the alert line "${f1.alert}"`, f1.W > 0 && f1.key !== k0 && /^Flooding · compartments? \d/.test(f1.alert), { f1, k0 });
-  // her holes on her skin: scorches and dark holes (the decals), seen from her starboard side
-  const dk = await page.evaluate(async () => { Flight.aimYaw = -Math.PI / 2; Flight.aimPitch = -0.05; await window.__simWait(0.4, true); const D = (Render3D.gfx() || {}).decals || []; return { n: D.length, k: D.filter((d) => d.k >= 1).length, core: D.filter((d) => d.k === 0 && d.a > 0.9).length }; });
+  // her holes on her skin: scorches and dark holes (the decals). The shell's on her forecastle seen from aft over her gun
+  // (the aim along her heading, 20° down, the camera 30 m back) on every screen; the one in her side from abeam (the aim
+  // to port, 55 m back) on a desktop, whose wider view holds it as far from the gun
+  const s0 = await page.evaluate(() => Flight.scale);
+  const dk = await page.evaluate(async () => { const v = Flight.active; await window.__aimDir(v.axis(1, 0, 0), -0.35, 30); const D = (Render3D.gfx() || {}).decals || [];
+    return { n: D.length, k: D.filter((d) => d.k >= 1).length, core: D.filter((d) => d.k === 0 && d.a > 0.9).length, deck: window.__scorches().filter((q) => q.on && q.up > 0.8) }; });
   await shot(page, `holes-${sz}`);
-  ok(`${tag}her holes drawn on her skin: ${dk.k} scorches and ${dk.core} dark holes (the decals' mesh)`, dk.k >= 2 && dk.core >= 2, dk);
+  const ds = vp[2] ? null : await page.evaluate(async () => { await window.__aimDir(Flight.active.axis(0, 0, -1), -0.08, 55); return window.__scorches().filter((q) => q.on && Math.abs(q.up) < 0.3); });
+  if (ds) await shot(page, `holes-side-${sz}`);
+  await page.evaluate((s0) => { Flight.scale = s0; }, s0);
+  ok(`${tag}her holes drawn on her skin: ${dk.k} scorches and ${dk.core} dark holes (the decals' mesh); the shell's on her forecastle on the screen at ${JSON.stringify(dk.deck.map((q) => [q.x, q.y]))}${ds ? `, the one in her side at ${JSON.stringify(ds.map((q) => [q.x, q.y]))}` : ''}`,
+    dk.k >= 2 && dk.core >= 2 && dk.deck.length >= 1 && (!ds || ds.length >= 1), { dk, ds });
   await page.evaluate(async () => { Flight.aimYaw = 0; Flight.aimPitch = 0; for (const p of Flight.active.sh.hulls) if (p.holes) for (const h of p.holes) { h.a = 1e-6; h.fix = 1; } await window.__simWait(2.6); }); // (a patched hole still leaks a tenth: these made pinholes her pumps keep up with)
   const f2 = await hudOf(page);
   ok(`${tag}the holes stopped and the water still: the fire's line ("${f2.alert}")`, /^Fires? (aft|forward|amidships)/.test(f2.alert), f2);
