@@ -227,27 +227,55 @@ const Sound = {
     this.glide('ls', this.lasG.gain, k, 0.05, 1e-4);
   },
   // (the ships update, WP12) A ship's loops, made on first use, each glided to the level asked (ship.js sounds: the
-  // player's ship, or one within 1.5 km of the view; null or 0: all of them to nothing): her diesels' throb (low
-  // noise, beaten by a pulse that quickens with their load: rpm 0..1), a gas turbine's whine (a thin note rising with its
-  // spool), the bow wave's hiss with her speed, flooding's gurgle (the bridge view), a close-in gun's buzz while it fires.
+  // player's ship, or one within 1.5 km of the view; null or 0: all of them to nothing): her diesels' throb (low noise
+  // beaten by their firing pulse, quickening with their load: rpm 0..1), a gas turbine's roar and whine (rising with its
+  // spool), an outboard's two-stroke buzz, the bow wave's hiss with her speed, flooding's gurgle (the bridge view), a
+  // close-in gun's ripping buzz while it fires. size (0..1: a RIB's 330 kW to a destroyer's 80 MW) makes the engines
+  // louder and lower. At full, a destroyer at flank is as present as a tank at full power, a RIB a little under it, and
+  // the close-in gun beside the view louder than both (test/browser/ship-flight.mjs measures them).
   // seaOn: any of them still playing (Flight.update keeps asking while so).
   seaOn: false,
+  SEA: { diesel: 1.6, turbine: 1.65, whine: 0.11, petrol: 0.24, hiss: 0.25, gurgle: 1.2, ciws: 1.2, gun: 0.48 }, // (each voice's gain at full)
   sea(L) {
     if (!this.ctx) { this.seaOn = false; return; }
-    const ctx = this.ctx, G = this._sea || (this._sea = {}), on = !!L;
+    const ctx = this.ctx, G = this._sea || (this._sea = {}), on = !!L, K = this.SEA;
+    const sz = on ? clamp(+L.size || 0, 0, 1) : G.sz || 0, big = 0.55 + 0.45 * sz, low = 1.25 - 0.5 * sz;
+    G.sz = sz;
     const lv = (k, m) => (on ? clamp(+L[k] || 0, 0, 1) * m : 0);
-    const want = { diesel: lv('diesel', 0.32), turbine: lv('turbine', 0.05), hiss: lv('hiss', 0.16), gurgle: lv('gurgle', 0.14), ciws: lv('ciws', 0.22) }, rpm = on ? clamp(+L.rpm || 0, 0, 1) : 0;
-    const noise = (type, f, q) => { const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true; const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; if (q) fl.Q.value = q; const g = ctx.createGain(); g.gain.value = 0; src.connect(fl); fl.connect(g); g.connect(this.master); src.start(0, Math.random() * 1.5); return { f: fl, g }; };
-    const lfo = (target, f, depth, type = 'sine') => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; const d = ctx.createGain(); d.gain.value = depth; o.connect(d); d.connect(target); o.start(); return o; };
-    if (want.diesel > 0 && !G.diesel) { const n = noise('lowpass', 110); const amp = ctx.createGain(); amp.gain.value = 0.55; n.g.disconnect(); n.g.connect(amp); amp.connect(this.master); n.lfo = lfo(amp.gain, 4, 0.45); G.diesel = n; }
-    if (want.turbine > 0 && !G.turbine) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 700; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 6; const g = ctx.createGain(); g.gain.value = 0; o.connect(f); f.connect(g); g.connect(this.master); o.start(); G.turbine = { o, f, g }; }
-    if (want.hiss > 0 && !G.hiss) G.hiss = noise('bandpass', 2200, 0.6);
-    if (want.gurgle > 0 && !G.gurgle) { const n = noise('bandpass', 420, 5); n.lfo = lfo(n.f.frequency, 3.3, 160, 'triangle'); G.gurgle = n; }
-    if (want.ciws > 0 && !G.ciws) { const n = noise('bandpass', 1300, 1.5); const amp = ctx.createGain(); amp.gain.value = 0.5; n.g.disconnect(); n.g.connect(amp); amp.connect(this.master); n.lfo = lfo(amp.gain, 75, 0.5, 'square'); G.ciws = n; }
+    const want = { diesel: lv('diesel', big), turbine: lv('turbine', big), petrol: lv('petrol', big), hiss: lv('hiss', 1), gurgle: lv('gurgle', 1), ciws: lv('ciws', 1) }, rpm = on ? clamp(+L.rpm || 0, 0, 1) : 0;
+    // (white noise for the hiss and the gun: the shared brown noise has little above a kilohertz)
+    const white = () => { if (!G.white) { const n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; G.white = b; } return G.white; };
+    const out = (vol) => { const g = ctx.createGain(); g.gain.value = 0; const m = ctx.createGain(); m.gain.value = vol; g.connect(m); m.connect(this.master); return g; };
+    const noise = (buf, type, f, q, to) => { const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true; const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; if (q) fl.Q.value = q; src.connect(fl); fl.connect(to); src.start(0, Math.random() * 1.5); return fl; };
+    const osc = (type, f, to) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.connect(to); o.start(); return o; };
+    const lfo = (target, f, depth, type = 'sine') => { const d = ctx.createGain(); d.gain.value = depth; osc(type, f, d); d.connect(target); return d; };
+    if (want.diesel > 0 && !G.diesel) { // (low noise through a pulse at the firing rate)
+      const g = out(K.diesel), amp = ctx.createGain(); amp.gain.value = 0.55; amp.connect(g);
+      const f = noise(this.noise, 'lowpass', 160, 0.9, amp), d = ctx.createGain(); d.gain.value = 0.45; const o = osc('sine', 4, d); d.connect(amp.gain);
+      G.diesel = { g, f, o };
+    }
+    if (want.turbine > 0 && !G.turbine) { // (a roar of air through it, and the compressor's whine over it)
+      const g = out(K.turbine), f = noise(this.noise, 'bandpass', 500, 0.7, g), wf = ctx.createBiquadFilter(); wf.type = 'bandpass'; wf.frequency.value = 1400; wf.Q.value = 6;
+      const wg = ctx.createGain(); wg.gain.value = K.whine / K.turbine; wf.connect(wg); wg.connect(g);
+      G.turbine = { g, f, o: osc('sawtooth', 700, wf), wf };
+    }
+    if (want.petrol > 0 && !G.petrol) { // (two outboards' two-stroke buzz, a hair apart, through a lowpass that opens with the throttle)
+      const g = out(K.petrol), f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900; f.Q.value = 2; f.connect(g);
+      G.petrol = { g, f, o: osc('sawtooth', 60, f), o2: osc('sawtooth', 60.7, f) };
+    }
+    if (want.hiss > 0 && !G.hiss) { const g = out(K.hiss); G.hiss = { g, f: noise(white(), 'bandpass', 1800, 0.45, g) }; }
+    if (want.gurgle > 0 && !G.gurgle) { const g = out(K.gurgle), f = noise(this.noise, 'bandpass', 420, 4, g); lfo(f.frequency, 3.3, 160, 'triangle'); G.gurgle = { g, f }; }
+    if (want.ciws > 0 && !G.ciws) { // (a gun firing 75 rounds a second: noise and a growl, chopped by a square wave at that rate)
+      const g = out(K.ciws), amp = ctx.createGain(); amp.gain.value = 0.5; amp.connect(g); lfo(amp.gain, 75, 0.5, 'square');
+      noise(white(), 'bandpass', 1000, 0.7, amp);
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; const lg = ctx.createGain(); lg.gain.value = K.gun / K.ciws; lp.connect(lg); lg.connect(amp); osc('sawtooth', 75, lp);
+      G.ciws = { g };
+    }
     for (const k in want) if (G[k]) this.glide('sea' + k, G[k].g.gain, want[k], k === 'ciws' ? 0.03 : 0.25, 1e-4);
-    if (G.diesel) { this.glide('seadf', G.diesel.f.frequency, 80 + 90 * rpm, 0.4, 1); this.glide('seadl', G.diesel.lfo.frequency, 3 + 7 * rpm, 0.4, 0.05); }
-    if (G.turbine) { this.glide('seatf', G.turbine.o.frequency, 500 + 1500 * rpm, 0.6, 2); this.glide('seatb', G.turbine.f.frequency, 1000 + 3000 * rpm, 0.6, 2); }
-    this.seaOn = want.diesel + want.turbine + want.hiss + want.gurgle + want.ciws > 0;
+    if (G.diesel) { this.glide('seadf', G.diesel.f.frequency, (110 + 230 * rpm) * low, 0.4, 1); this.glide('seadl', G.diesel.o.frequency, (2.5 + 8 * rpm) * low, 0.4, 0.05); }
+    if (G.turbine) { this.glide('seatr', G.turbine.f.frequency, (380 + 520 * rpm) * low, 0.6, 2); this.glide('seatf', G.turbine.o.frequency, (500 + 1500 * rpm) * low, 0.6, 2); this.glide('seatb', G.turbine.wf.frequency, (1000 + 3000 * rpm) * low, 0.6, 2); }
+    if (G.petrol) { const f = (45 + 125 * rpm) * low; this.glide('seapo', G.petrol.o.frequency, f, 0.3, 0.5); this.glide('seapp', G.petrol.o2.frequency, f * 1.012, 0.3, 0.5); this.glide('seapf', G.petrol.f.frequency, 700 + 1800 * rpm, 0.3, 5); }
+    this.seaOn = want.diesel + want.turbine + want.petrol + want.hiss + want.gurgle + want.ciws > 0;
   },
   // the engine-order telegraph's bell: n strokes of a small brass bell (three partials, a quick decay), 0.2 s apart
   bell(n = 1) {
@@ -275,7 +303,7 @@ const Sound = {
     hit(drop ? 0 : 0.35, 0.6, 1500, 'bandpass', 0.35);
   },
   // a hull holed: a deep clang of steel (inharmonic low partials and a crack of noise), k its size (0.2..2), dist m from the
-  // camera (quieter and later further off; nothing past 3 km); at most three a second
+  // camera (quieter and later further off; ship.js asks within 1.5 km, nothing past 3 km whoever asks); at most three a second
   clang(k = 1, dist = 0) {
     const d = Math.max(0, +dist || 0);
     if (!this.ctx || d > 3000) return;

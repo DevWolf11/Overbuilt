@@ -459,7 +459,7 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   const fr = await framing(page);
   ok(`${tag}the destroyer's camera as she sets out: the aim camera ${fr.d.toFixed(0)} m from her middle (her reach ${fr.far.toFixed(0)} m), her ${fr.L.toFixed(0)} m framed whole (bow and stern on the screen: ${JSON.stringify(fr.ends)})`, fr.aim && fr.on && fr.d <= fr.far + 1 && fr.d > 0.5 * fr.L, fr);
   await page.evaluate(strokes);
-  await page.evaluate(() => { window.__snd = { bell: 0, sea: [] }; const b = Sound.bell, sea = Sound.sea; Sound.bell = function (...a) { window.__snd.bell++; return b.apply(this, a); }; Sound.sea = function (L) { if (L && window.__snd.sea.length < 400) window.__snd.sea.push(L.diesel || L.turbine || 0); return sea.apply(this, arguments); }; });
+  await page.evaluate(() => { window.__snd = { bell: 0, sea: [] }; const b = Sound.bell, sea = Sound.sea; Sound.bell = function (...a) { window.__snd.bell++; return b.apply(this, a); }; Sound.sea = function (L) { if (L && window.__snd.sea.length < 400) window.__snd.sea.push(L.diesel || L.turbine || L.petrol || 0); return sea.apply(this, arguments); }; });
   const L0 = await page.evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return b.width ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; };
     return { cv: r('#ship-helm .sh-cv'), tel: r('#flight-ui .telemetry'), rungs: r('#ship-helm .sh-rungs'), hl: r('#ship-helm .sh-hl'), H: innerHeight }; });
   const h0 = await hudOf(page);

@@ -113,12 +113,13 @@ const SHIP = {
   // ---- units
   KN: 1.943844,                      // knots per m/s (ship displays speak knots)
   // ---- the HUD, sound and feel (§12) [WP12]
-  HUD: { hz: 4, torpSee: 1500, torpRun: 3000, track: 1500, floodT: 2, list: 8, listAlone: 15, sinkK: 0.5, hear: 1500, smooth: 2 },
+  HUD: { hz: 4, torpSee: 1500, torpRun: 3000, track: 1500, floodT: 2, list: 8, listAlone: 15, sinkK: 0.5, hear: 1500, smooth: 2, kw0: 2.3, kwSpan: 2.6 },
   //   (the hull diagram and the warnings looked at hz times a second; an incoming torpedo seen (its bubble track) within
   //   torpSee m, our own runs drawn torpRun m at most and an incoming one's track ahead `track` m; a compartment is flooding
   //   for floodT s after its water last rose; the flooding line adds her list past `list`°, a list alone warns past
   //   listAlone°; it is critical past sinkK of her reserve buoyancy taken; ship sounds within `hear` m of the view; heel,
-  //   trim and the waterline eased over `smooth` s for the diagram)
+  //   trim and the waterline eased over `smooth` s for the diagram; her engines' size for their sound from 10^kw0 kW (a
+  //   RIB's outboards: 0) over kwSpan decades (a destroyer's 80 MW: 1))
   CAM: { near: 0.8, sea: 0.3 },      // [WP12] the bridge view's eye at least `near` m over any of her own parts it would be in, and `sea` m over the wave at it
   // ---- the builder (§11.3) [WP4]: the still-water float, top speed, tap placement and the warnings
   BUILD: { tol: 2e-4, iters: 8, dA: 0.003, dGM: 0.02, gmLow: 0.3, heel: 2, trim: 1, free: 0.25, capsize: 60,
@@ -3537,7 +3538,7 @@ const Ship = (() => {
       dmg: w.dmg || 4000, blast: w.blast || 12, seek: w.seek || 'active', drop: air, gyro: gyro || null, tgt: null, look: 0, bub: 0, ship: !!v.hydro, life: 600, part: p };
     if (typeof Combat !== 'undefined') { Combat.release(v, p); Combat.S.shots.push(s); }
     if (typeof FX !== 'undefined' && F && F.active && Math.hypot(m.x - F.active.x, m.y - F.active.y, m.z - F.active.z) < 3000) FX.puff(b, m, { x: v.vx + dir.x * 4, y: v.vy + dir.y * 4, z: v.vz + dir.z * 4 }, 4, '#dfe3e6');
-    if (me && typeof Sound !== 'undefined' && Sound.separate) Sound.separate();
+    if (me && (air || !v.hydro) && typeof Sound !== 'undefined' && Sound.separate) Sound.separate(); // [WP12] (a drop's release; a ship's tube is heard as Ship.sounds' torpedo launch, once)
     void r;
     return s;
   }
@@ -3971,7 +3972,8 @@ const Ship = (() => {
   function ciwsStep(F, dt) {
     if (!(dt > 0) || !F || !F.vessels) return;
     for (const v of F.vessels) {
-      if (!v.ciws || !v.ciws.length || v.dead || v.remote || v.ko || v.wreck || v.fate || !v.parts.length) continue;
+      if (!v.ciws || !v.ciws.length || v.remote) continue;
+      if (v.dead || v.ko || v.wreck || v.fate || !v.parts.length) { for (const p of v.ciws) if (p.gunOn) p.gunOn = false; continue; } // [WP12] (a lost ship's guns stop: no burst left on for the sound or the other players)
       const on = !v.sh || !isSea(v.kind) ? true : v.sh.ciwsOn !== false; // (the player's switch, the computer's Ship.ciwsOn)
       for (const p of v.ciws) {
         if (!on || !v.parts.includes(p) || p.broken || (p.hp != null && p.hp <= 0)) { p.gunOn = false; continue; }
@@ -4750,9 +4752,26 @@ const Ship = (() => {
     else AL.bt = 0;
     return AL.out;
   }
+  // which compartments are taking water (their water risen in the last HUD.floodT s: c._hT, the diagram's blink and the
+  // bridge's gurgle read it), looked at with every warning whatever holds the line; [their numbers, her water (m³)]
+  const FL = [];
+  function floodNow(v, S, now) {
+    const G = hullGeo(v, S);
+    let W = 0;
+    FL.length = 0;
+    for (const q of G.comps) {
+      const c = q.c;
+      W += c.W;
+      if (c._hw != null && c.W > c._hw + 0.005 && c.W > SHIP.FLOOD.wMin) c._hT = now; // (water coming in faster than her pumps take it out: a small leak they keep up with says nothing)
+      c._hw = c.W;
+      if (c._hT != null && now - c._hT < SHIP.HUD.floodT * 1000 && now >= c._hT) FL.push(q);
+    }
+    return W;
+  }
   function alertNow(v, S, F, now) {
     const HU = SHIP.HUD, shots = typeof Combat !== 'undefined' ? Combat.S.shots : NONE;
     if (S.vtot == null) hullVol(S);
+    const W = floodNow(v, S, now), G = hullGeo(v, S);
     // a torpedo, the nearest (closing on her, or homing on her) within sight of its bubbles
     let tb = null, td = HU.torpSee, mb = null, md = Infinity;
     for (const s of shots) {
@@ -4776,16 +4795,8 @@ const Ship = (() => {
     let mt = 0;
     for (const p of v.parts) if (p.magT > mt && !p.magUp) mt = p.magT;
     if (mt > 0) return { text: `Magazine fire! · ${Math.max(1, Math.ceil(SHIP.MAG.t - mt))} s`, crit: true, k: 'mag' };
-    // flooding: a compartment whose water rose in the last HUD.floodT s
-    const G = hullGeo(v, S), fl = [];
-    let W = 0;
-    for (const q of G.comps) {
-      const c = q.c;
-      W += c.W;
-      if (c._hw != null && c.W > c._hw + 0.005 && c.W > SHIP.FLOOD.wMin) c._hT = now; // (water coming in faster than her pumps take it out: a small leak they keep up with says nothing)
-      c._hw = c.W;
-      if (c._hT != null && now - c._hT < HU.floodT * 1000 && now >= c._hT) fl.push(q.no);
-    }
+    // flooding: a compartment whose water rose in the last HUD.floodT s (floodNow)
+    const fl = FL.map((q) => q.no);
     const ld = Math.round((AL.heel * 180) / Math.PI), list = Math.abs(ld) >= HU.list ? ` · list ${Math.abs(ld)}° ${ld > 0 ? 'stbd' : 'port'}` : '';
     if (fl.length) {
       fl.sort((a, b) => a - b);
@@ -4893,7 +4904,7 @@ const Ship = (() => {
   // flooding in the bridge view; a close-in gun's buzz while one fires near the view; a torpedo's launch and a deep
   // clang when a hull is holed, near the view. (The telegraph's bell rings from hud; a magazine's blast is the damage
   // model's: Death.deathFX.) Every level a loop's (Sound.sea), set to nothing when nothing near makes it.
-  const SN = { shot: new WeakSet(), holes: new WeakMap(), on: false };
+  const SN = { shot: new WeakSet(), holes: new WeakMap(), on: false, kw: { diesel: 0, turbine: 0, petrol: 0 } };
   const _sv = v3();
   function sounds(F, dt) {
     if (typeof Sound === 'undefined' || !Sound.sea) return;
@@ -4905,14 +4916,19 @@ const Ship = (() => {
     // the ship heard: the player's own, else the nearest within reach of the view
     let s = v && isSea(v.kind) && v.sh && !v.dead && v.sh.rings.length ? v : null, sd = s ? far(s) : Infinity;
     if (!s) for (const o of F.vessels) { if (o.dead || !o.sh || !o.sh.rings.length || !isSea(o.kind) || o.body !== view.body || o.wreck) continue; const d = far(o); if (d < HU.hear && d < sd) { s = o; sd = d; } }
-    const L = { diesel: 0, turbine: 0, rpm: 0, hiss: 0, gurgle: 0, ciws: 0 };
+    const L = { diesel: 0, turbine: 0, petrol: 0, rpm: 0, size: 0, hiss: 0, gurgle: 0, ciws: 0 };
     if (s && !(s.sunk != null)) {
       const S = s.sh, k = s === v ? 1 : clamp(1 - sd / HU.hear, 0, 1), pow = clamp(S.pow || 0, 0, 1);
-      let turb = false;
-      for (const p of S.engines) if (p.def.engine && p.def.engine.fuel === 'turbine' && !p.broken) { turb = true; break; }
-      const run = s.ko || s.fate ? 0 : 1, dem = Math.abs(SHIP.TEL[clamp((S.tel | 0) + 3, 0, SHIP.TEL.length - 1)] || 0);
-      if (turb) { L.turbine = k * run * (0.25 + 0.75 * pow); L.rpm = pow; }
-      else { L.diesel = k * run * (0.3 + 0.7 * Math.max(pow, dem * 0.3)); L.rpm = Math.max(pow, 0.1); }
+      // her engines by kind, each heard by its share of her power (a CODAG's diesels at cruise, its turbine lit for speed),
+      // all of them louder and lower the more power she has (size: 0 a RIB's outboards, 1 a destroyer's 80 MW)
+      const kw = SN.kw; kw.diesel = 0; kw.turbine = 0; kw.petrol = 0;
+      let tot = 0;
+      for (const p of S.engines) { if (p.broken || !s.byId.has(p.id)) continue; const e = p.def.engine, f = e.fuel === 'turbine' || e.fuel === 'petrol' ? e.fuel : 'diesel'; kw[f] += e.kw || 0; tot += e.kw || 0; }
+      const run = s.ko || s.fate || !(tot > 0) ? 0 : k, dem = Math.abs(SHIP.TEL[clamp((S.tel | 0) + 3, 0, SHIP.TEL.length - 1)] || 0), sh = (f) => (tot > 0 ? Math.sqrt(kw[f] / tot) : 0);
+      L.size = clamp((Math.log10(Math.max(tot, 1)) - HU.kw0) / HU.kwSpan, 0, 1); L.rpm = pow;
+      L.diesel = run * sh('diesel') * (0.3 + 0.7 * Math.max(pow, dem * 0.3));
+      L.turbine = run * sh('turbine') * (kw.turbine < tot ? smoothstep(0.35, 0.75, pow) : 1) * (0.25 + 0.75 * pow);
+      L.petrol = run * sh('petrol') * (0.25 + 0.75 * pow);
       const sp = s.afloat ? s.speed() : 0;
       L.hiss = k * clamp(sp / 15, 0, 1);
       if (s === v && F.bridge) { let up = false; for (const c of S.comps) if (c._hT != null && performance.now() - c._hT < HU.floodT * 1000) { up = true; break; } L.gurgle = up ? 0.6 : 0; }
@@ -4920,20 +4936,21 @@ const Ship = (() => {
     // a close-in gun firing near the view, and a torpedo's launch and a hull holed near it
     for (const o of F.vessels) {
       if (o.dead || !o.parts.length || o.body !== view.body) continue;
-      if (o.ciws && o.ciws.length) for (const p of o.ciws) if (p.gunOn) { const d = far(o); if (d < HU.hear) L.ciws = Math.max(L.ciws, 1 - d / HU.hear); }
+      if (o.ciws && o.ciws.length && !o.fate && !o.ko && !o.wreck) for (const p of o.ciws) if (p.gunOn) { const d = far(o); if (d < HU.hear) L.ciws = Math.max(L.ciws, 1 - d / HU.hear); } // (a lost ship's guns are still)
       if (!o.sh) continue;
       let a = 0;
       for (const p of o.sh.hulls) if (p.holes) for (const h of p.holes) a += h.a;
-      const was = SN.holes.get(o);
-      if (was != null && a > was + 1e-4) { const d = far(o); if (d < HU.hear * 2 && Sound.clang) Sound.clang(clamp(Math.sqrt(a - was), 0.2, 2), d); }
-      if (was == null ? a > 0 : a !== was) SN.holes.set(o, a);
+      const was = SN.holes.get(o); // (her holes' area when first seen, none included: every hole after it clangs, the first too)
+      if (was != null && a > was + 1e-4) { const d = far(o); if (d < HU.hear && Sound.clang) Sound.clang(clamp(Math.sqrt(a - was), 0.2, 2), d); }
+      if (was == null || a !== was) SN.holes.set(o, a);
     }
+    // a torpedo's launch from a tube (its first half second), or a drop's splash as it meets the water (its run's first)
     if (typeof Combat !== 'undefined') for (const t of Combat.S.shots) {
-      if (t.k !== 'stor' || SN.shot.has(t)) continue;
+      if (t.k !== 'stor' || SN.shot.has(t) || (t.drop && t.ph === 'air' && !t.dead)) continue;
       SN.shot.add(t);
-      if (t.t < 0.5 && Sound.torpedo) { _sv.x = t.x; _sv.y = t.y; _sv.z = t.z; const d = far(_sv); if (d < HU.hear) Sound.torpedo(d, !!t.drop); }
+      if ((t.drop ? t.ph === 'run' && t.t - (t.t0 || 0) < 0.5 : t.t < 0.5) && Sound.torpedo) { _sv.x = t.x; _sv.y = t.y; _sv.z = t.z; const d = far(_sv); if (d < HU.hear) Sound.torpedo(d, !!t.drop); }
     }
-    const any = L.diesel + L.turbine + L.hiss + L.gurgle + L.ciws > 0;
+    const any = L.diesel + L.turbine + L.petrol + L.hiss + L.gurgle + L.ciws > 0;
     if (any || SN.on) Sound.sea(L);
     SN.on = any;
     void dt;
