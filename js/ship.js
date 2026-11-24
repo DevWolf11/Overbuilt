@@ -102,7 +102,7 @@ const SHIP = {
   IMPACT: { hp: 0.4, hole: 0.02, remove: 2 }, // a grounding past a hull's limit: 40 % of its hp, a hole of 0.02 m² per m/s over, removed past 2×
   SLAM: { k: 1.8, floor: 0.3, hole: 0.01 }, // a hull ring meeting the water faster than k × its part's breakSpeed: a slam (holes, never a shattered hull) [WP6]; [WP8] its hp taken never below `floor` of the hull's, and a hull there takes no more; a slam's hole a crack of `hole` m² at most (the sea alone never sinks her)
   DECK_BAND: 1.5, CARRIER_DEPTH: 9,  // a deck (carrier or ship) is met from DECK_BAND m under it; a carrier's hull box reaches CARRIER_DEPTH m under the sea
-  BUMP: { e: 0.1, push: 0.5, v: 2.5, dmg: 0.5, hole: 0.002, peer: 25, peerT: 1 }, // ship on ship: restitution, push-out share, damage from v m/s (0.5·μ·s²/1000 hp), holes 0.002·s² m²; [WP11] another player's ghost: its own speed at the contact counted up to peer m/s (49 kn: past any stock ship's flank) in a blow, its first touch after peerT s apart
+  BUMP: { e: 0.1, push: 0.5, v: 2.5, dmg: 0.5, hole: 0.002, peer: 25, peerT: 1, peerP: 3 }, // ship on ship: restitution, push-out share, damage from v m/s (0.5·μ·s²/1000 hp), holes 0.002·s² m²; [WP11] another player's ghost: its own speed at the contact counted up to peer m/s (49 kn: past any stock ship's flank) in a blow, its first touch after peerT s apart; its overlap pushed out of ours at peerP m/s at most (a ghost forged onto her side can't herd her about)
   LASH: { v: 0.3, t: 1, lift: 0.3, tilt: 25 }, // a craft on a moving deck is lashed under v m/s for t s with no lift; let go past lift or tilt°
   // ---- mooring, warp, far ships (§4.10)
   MOOR: { t: 5, v: 0.5, wake: 200, wakeV: 2, hz: 10 }, // still for t s under v m/s: moored (drifts on the waves at hz); woken by a craft within wake m faster than wakeV
@@ -1154,28 +1154,34 @@ const Ship = (() => {
   function effInv(v, r, n) { cross3(r, n, _bS); v.invIWorld(_bS, _bI); cross3(_bI, r, _bS); return 1 / v.mass + dot3(_bS, n); }
   // the contact C between A and B (B null: a carrier, immovable): impulse, push-out, damage. ([WP11] Against another
   // player's ghost (S10; a peer's numbers are untrusted, as Gear.bump's bumpV): across the water only, its shove at most
-  // BUMP.peer m/s, its own speed at the contact (its snapshot's velocity and spin) counted up to BUMP.peer m/s in a blow
+  // BUMP.peerP m/s, its own speed at the contact (its snapshot's velocity and spin) counted up to BUMP.peer m/s in a blow
   // only (the first touch after BUMP.peerT s apart), the impulse two real masses' (our share of it; the ghost's is its
   // owner's), and only a blow hurts: a forged spin, speed or pose can neither fling, bulldoze nor grind away our ship)
   const _bN = v3();
   function resolve(A, B, C, F) {
     const P = C.P, fixA = !!A.remote, fixB = !B || !!B.remote;
     if (fixA && fixB) return;
-    // ([WP11] gh: another player's ghost in it. Met across the water only (the contact's normal laid flat: a ghost's pose,
-    // its owner's word, never lifts or presses us), shoving us at most BUMP.peer m/s (the push-out). Its own speed counts
-    // (capped at BUMP.peer) only in a blow, the first touch after BUMP.peerT s apart; while they stay in touch it is a
-    // still hull, and only a blow hurts. A ghost kept on us or swept through us by forged snapshots can neither fling,
+    // ([WP11] gh: another player's ghost in it. Met across the water only (the contact's normal laid flat, or from our
+    // centre toward hers where its way out is up or down: a ghost's pose, its owner's word, never lifts or presses us),
+    // shoving us at most BUMP.peerP m/s (the push-out). Its own speed counts (capped at BUMP.peer) only in a blow, the
+    // first touch after BUMP.peerT s apart; while they stay in touch it is a still hull, and only a blow hurts. A ghost kept on us or swept through us by forged snapshots can neither fling,
     // bulldoze nor grind our ship away: it rams once, as a ship of its mass at 49 kn at worst)
     const gh = B && B.remote ? B : A.remote ? A : null, now = gh ? clockOf(F) : 0, t0 = gh ? gh._bumpT ?? -Infinity : 0;
     const blow = !gh || !(now >= t0 && now - t0 < SHIP.BUMP.peerT), PV = blow ? SHIP.BUMP.peer : 0;
-    if (gh) gh._bumpT = now; // (in touch now)
     let n = C.n, pen = C.pen;
     if (gh) {
       const r = Math.hypot(P.x, P.y, P.z) || 1, ux = P.x / r, uy = P.y / r, uz = P.z / r, k = n.x * ux + n.y * uy + n.z * uz;
       _bN.x = n.x - ux * k; _bN.y = n.y - uy * k; _bN.z = n.z - uz * k;
-      const l = Math.hypot(_bN.x, _bN.y, _bN.z);
-      if (l < 0.3) return; // (hull on hull from above or below: a forged pose)
-      _bN.x /= l; _bN.y /= l; _bN.z /= l; n = _bN; pen = Math.min(pen * l, SHIP.BUMP.peer * BDT);
+      let l = Math.hypot(_bN.x, _bN.y, _bN.z);
+      if (l >= 0.3) pen *= l;
+      else { // (the deepest point's way out is up or down, a deck edge under her deck: across the water instead, from A's centre toward B's)
+        const dx = B.x - A.x, dy = B.y - A.y, dz = B.z - A.z, kc = dx * ux + dy * uy + dz * uz;
+        _bN.x = dx - ux * kc; _bN.y = dy - uy * kc; _bN.z = dz - uz * kc;
+        l = Math.hypot(_bN.x, _bN.y, _bN.z);
+        if (l < 0.5) return; // (one right on top of the other: a forged pose)
+      }
+      _bN.x /= l; _bN.y /= l; _bN.z /= l; n = _bN; pen = Math.min(pen, SHIP.BUMP.peerP * BDT);
+      gh._bumpT = now; // (in touch now: met, so a blow's first touch is never lost to a contact left out)
     }
     const rA = v3(P.x - A.x, P.y - A.y, P.z - A.z), vA = A.pointVel(rA, v3()), kA = effInv(A, rA, n), uA = dot3(vA, n);
     let vn = -(A.remote ? clamp(uA, -PV, PV) : uA), kB = 0, rB = null;
@@ -4623,10 +4629,6 @@ const Ship = (() => {
     g.afloat = m.af === 1 && netAfloat(g.body, g.x, g.y, g.z); // (af believed only where a ship can float)
     S.fsub = g.afloat ? 0.5 : 0; // (her bow spray and the wash: Ship.fx reads it)
   }
-  // can a craft whose centre is at (x, y, z) (sim) be afloat (a snapshot's af, a zone's capturer at sea): her centre within
-  // NET.AF m of the sea level and, on the real map, the water under her. A ghost in the air or on land is no ship afloat,
-  // whatever her snapshot says (it would take a zone at sea and drop out of every aircraft radar). Without the map our
-  // shores aren't theirs: her height alone
   // a ship's snapshot's velocity and spin as a ship's can be (mp.js poseGhost: her dead reckoning, and so her bumps):
   // V within NET.V m/s, W within NET.W rad/s, longer ones scaled back (a forged spin would sweep her hull through ours);
   // any other kind's (a seaplane's) as sent. S: the snapshot (finite: onSnap's)
@@ -4637,6 +4639,10 @@ const Ship = (() => {
     capLen(S.V, NET.V, NVW.V); capLen(S.W, NET.W, NVW.W);
     return NVW;
   }
+  // can a craft whose centre is at (x, y, z) (sim) be afloat (a snapshot's af, a zone's capturer at sea): her centre within
+  // NET.AF m of the sea level and, on the real map, the water under her. A ghost in the air or on land is no ship afloat,
+  // whatever her snapshot says (it would take a zone at sea and drop out of every aircraft radar). Without the map our
+  // shores aren't theirs: her height alone
   const _af = { a: 0, z: 0, r: 0 };
   function netAfloat(b, x, y, z) {
     if (!b || !(b.radius > 0) || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;

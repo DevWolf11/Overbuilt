@@ -957,13 +957,28 @@ async function roomNaval() {
   // spinning at 1e8 rad/s, then still: it meets us across the water only, its speed capped (25 m/s) and counted once (a
   // blow, the first touch after a second apart), its spin as a ship's (1.5 rad/s), never a deck we ride
   A(`var blows = 0, cd0 = Combat.damage; Combat.damage = function (v, p, d, why) { if (v === me && why === 'crash') blows++; return cd0.apply(this, arguments); };
-    var ram = (V, W, off) => { const P2 = MP.peers.get(2), base = JSON.parse(JSON.stringify(P2.snap)), h0 = holeA(me), hp0 = hpOf(me), b0 = blows; let top = 0;
-      for (let i = 0; i < 240; i++) { const side = me.toWorld(me.com.x, me.com.y, (me.com.z || 0) + off), d = [side.x - me.x, side.y - me.y, side.z - me.z], dl = Math.hypot(...d);
-        emit(Object.assign({}, base, { f: 2, th: __T, P: [side.x, side.y, side.z], V: d.map((x) => -x / dl * V), Q: [me.q.w, me.q.x, me.q.y, me.q.z], W: [0, W, 0], C: base.C })); frame(); top = Math.max(top, me.speed()); }
-      return { top: +top.toFixed(2), blows: blows - b0, holes: +(holeA(me) - h0).toFixed(3), hp: hp0 - hpOf(me), fate: me.fate || null, finite: [me.x, me.vx, me.q.w, me.av.x].every(Number.isFinite), vw: [Math.hypot(...MP.peers.get(2).ghost.av ? [MP.peers.get(2).ghost.av.x, MP.peers.get(2).ghost.av.y, MP.peers.get(2).ghost.av.z] : [0])] }; };
+    // (push: how far she moved each frame past what her own speed carries her: the push-out's shove, at most 3 m/s × 4 s)
+    var ram = (V, W, off) => { const P2 = MP.peers.get(2), base = JSON.parse(JSON.stringify(P2.snap)), h0 = holeA(me), hp0 = hpOf(me), b0 = blows; let top = 0, push = 0;
+      for (let i = 0; i < 240; i++) { const side = me.toWorld(me.com.x, me.com.y, (me.com.z || 0) + off), d = [side.x - me.x, side.y - me.y, side.z - me.z], dl = Math.hypot(...d), p0 = [me.x, me.y, me.z], s0 = me.speed();
+        emit(Object.assign({}, base, { f: 2, th: __T, P: [side.x, side.y, side.z], V: d.map((x) => -x / dl * V), Q: [me.q.w, me.q.x, me.q.y, me.q.z], W: [0, W, 0], C: base.C })); frame(); top = Math.max(top, me.speed());
+        push += Math.max(0, Math.hypot(me.x - p0[0], me.y - p0[1], me.z - p0[2]) - Math.max(s0, me.speed()) / 60); }
+      return { top: +top.toFixed(2), push: +push.toFixed(2), blows: blows - b0, holes: +(holeA(me) - h0).toFixed(3), hp: hp0 - hpOf(me), fate: me.fate || null, finite: [me.x, me.vx, me.q.w, me.av.x].every(Number.isFinite), vw: [Math.hypot(...MP.peers.get(2).ghost.av ? [MP.peers.get(2).ghost.av.x, MP.peers.get(2).ghost.av.y, MP.peers.get(2).ghost.av.z] : [0])] }; };
     var rams = [ram(60, 0, 14), ram(0, 1e8, 14), ram(0, 0, 10)]; Combat.damage = cd0;`);
-  t('naval (hostile): a ghost forged onto our side for 4 s (closing at 60 m/s, spinning at 1e8 rad/s, or still and deep in her) rams her once at most, as a ship of its mass at 25 m/s: she moves under 10 m/s, never doomed (it had flung her at 6,560 km/s and sunk her in a second)',
-    A(`rams.every((r) => r.finite && r.top < 10 && r.blows <= 1 && !r.fate) && rams[1].vw[0] <= 1.5 + 1e-9 && rams[2].blows === 0`), A('rams'));
+  t('naval (hostile): a ghost forged onto our side for 4 s (closing at 60 m/s, spinning at 1e8 rad/s, or still and deep in her) rams her once at most, as a ship of its mass at 25 m/s: she moves under 10 m/s, never doomed, and is pushed out of it at 3 m/s at most (it had flung her at 6,560 km/s and sunk her in a second)',
+    A(`rams.every((r) => r.finite && r.top < 10 && r.blows <= 1 && !r.fate && r.push <= 3 * 4 + 1) && rams[1].vw[0] <= 1.5 + 1e-9 && rams[2].blows === 0`), A('rams'));
+  // (S10) an honest ghost: off her beam (1.5 s apart, 200 m off), then closing from 45 m at 10 m/s along its own path; at
+  // the touch it stops (its owner's screen bounces it). One blow, our share of two Arleys meeting at 10 m/s: she is thrown
+  // off at 1-5 m/s (its first touch's way out is often up a deck edge: met across the water from her centre, not lost)
+  A(`var blowsH = 0, cd1 = Combat.damage; Combat.damage = function (v, p, d, why) { if (v === me && why === 'crash') blowsH++; return cd1.apply(this, arguments); };
+    var hon = (() => { const P2 = MP.peers.get(2), base = JSON.parse(JSON.stringify(P2.snap)), side = me.toWorld(me.com.x, me.com.y, (me.com.z || 0) + 1), u = [side.x - me.x, side.y - me.y, side.z - me.z], ul = Math.hypot(...u);
+      for (let k = 0; k < 3; k++) u[k] /= ul;
+      const at = (o) => [me.x + u[0] * o, me.y + u[1] * o, me.z + u[2] * o], send = (P, V) => emit(Object.assign({}, base, { f: 2, th: __T, P, V, Q: [me.q.w, me.q.x, me.q.y, me.q.z], W: [0, 0, 0], C: base.C }));
+      for (let i = 0; i < 90; i++) { send(at(200), [0, 0, 0]); frame(); }
+      const v0 = me.speed(); let off = 45, P = null, top = 0, t = 0;
+      for (let i = 0; i < 60 * 8; i++) { if (!P) { off -= 10 / 60; send(at(off), u.map((x) => -x * 10)); if (blowsH) P = at(off); } else { send(P, [0, 0, 0]); t++; } frame(); top = Math.max(top, me.speed()); if (t > 60) break; }
+      return { v0: +v0.toFixed(3), touch: P ? +off.toFixed(1) : null, top: +top.toFixed(2), blows: blowsH, finite: [me.x, me.vx, me.q.w].every(Number.isFinite) }; })(); Combat.damage = cd1;`);
+  t('naval: an honest ship ghost closing at 10 m/s across the water rams once (S10): one blow, her own ship thrown off at 1-5 m/s',
+    A(`hon.finite && hon.touch != null && hon.blows === 1 && hon.top > 1 && hon.top < 5`), A('hon'));
   // forged torpedoes and downs
   B(`var g1 = MP.peers.get(1).ghost, P = [g1.x, g1.y, g1.z], n0 = Combat.shots.filter((s) => s.k === 'stor').length, threw2 = null;
     try { for (const m of [{ id: NaN, P, V: [1, 0, 0] }, { id: 7, P: 'x', V: [1, 0, 0] }, { id: 8, P, V: [1e6, 0, 0] }, { id: 9, P: [1e12, 0, 0], V: [1, 0, 0] }, { id: 10, end: 1 }, { id: -1, P, V: [1, 0, 0] }]) emit(Object.assign({ t: 'shot', f: 1, k: 'stor', b: 'earth' }, m));
@@ -990,7 +1005,7 @@ async function roomNaval() {
     var nzBad = [{ nz: [hull5.id, 1, 0] }, { nz: 'x' }, { nz: [td.id, NaN, 0] }, { nz: [td.id] }, { nz: [999999, 1, 0] }, { nz: [String(td.id), 1, 0] }].map((m) => Ship.netNoise(g5, m, Flight));
     var s5 = Ship.torpAt(me, (() => { const L = (v) => { const P = {}; Terrain.locate(EARTH, v.x, v.y, v.z, P); return { e: -wrapAngle(P.a - EARTH.padAngle) * EARTH.radius, z: P.z }; }; const a = L(me), b = L(g5); return Math.atan2(b.e - a.e, -(b.z - a.z)); })(), Flight);
     var nzOk = []; for (let i = 0; i < 6; i++) { emit({ t: 'cm', f: 2, nz: [td.id, 1, 0] }); nzOk.push(g5.parts.includes(td) && td.dAmmo); }
-    for (let i = 0; i < 150; i++) frame();
+    for (let i = 0; i < 360 && !(s5 && s5.heard); i++) frame(); // (its seeker looks once it has run a second in the water)
     var heard = s5 && s5.heard ? s5.heard.size : 0, draft1 = Ship.draftOf(g5);`);
   t('naval (hostile): her Torpedo Decoy\'s noisemakers reach our torpedo (cm\'s nz: it hears them, as solo); one only from a Torpedo Decoy of hers with rounds left (4: its ammo), junk refused; nothing thrown',
     A(`ok0 && nzBad.every((x) => x === false) && JSON.stringify(nzOk) === '[3,2,1,0,0,0]' && !!s5 && heard >= 1`), A('[ok0, nzBad, nzOk, !!s5, heard]'));
