@@ -4696,8 +4696,8 @@ const Ship = (() => {
     if (HUD.heel.textContent !== t1) HUD.heel.textContent = t1;
     if (HUD.trim.textContent !== t2) HUD.trim.textContent = t2;
     if (HUD.hl.classList.contains('lost') !== lost) HUD.hl.classList.toggle('lost', lost);
-    HUD.heel.classList.toggle('warn', !lost && Math.abs(hd) >= SHIP.HUD.list);
-    HUD.trim.classList.toggle('warn', !lost && Math.abs(td) >= SHIP.HUD.list);
+    HUD.heel.classList.toggle('sh-warn', !lost && Math.abs(hd) >= SHIP.HUD.list);
+    HUD.trim.classList.toggle('sh-warn', !lost && Math.abs(td) >= SHIP.HUD.list);
   }
 
   // ---- the warnings [WP12]: the alert line's words for the player's ship (Flight.updateHUD asks; null: none), HUD.hz

@@ -1470,7 +1470,7 @@ body.ship .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; padding-lef
 .sh-cv { display: block; width: 100%; height: 44px; }
 .sh-hl { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; white-space: nowrap; font: 500 9px var(--mono); color: var(--muted); min-width: 0; overflow: hidden; }
 .sh-hl span { overflow: hidden; }
-.sh-hl .warn { color: var(--amber); }
+.sh-hl .sh-warn { color: var(--amber); } /* (its own class: the page's .warn paragraph style would grow it to 12 px with a bar) */
 .sh-hl.lost { justify-content: center; color: #ff5d5d; font: 700 12px var(--display); letter-spacing: 0.1em; }
 @media (max-width: 760px) { .sh-cv { height: 20px; } }
 @media (max-height: 500px) { .sh-cv { height: 14px; } }
