@@ -616,6 +616,24 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   // her aim camera: back to her length's reach and in to 7 m (it was held to 30 m)
   const zm = await page.evaluate(() => { const k = App.H / 2 / Math.tan((25 * Math.PI) / 180), z = () => k / Flight.scale; for (let i = 0; i < 30; i++) Flight.zoomBy(0.7); const far = z(); for (let i = 0; i < 40; i++) Flight.zoomBy(1.4); const near = z(); for (let i = 0; i < 30; i++) Flight.zoomBy(0.7); return { far, near, reach: Ship.aimFar(Flight.active), in: k / Math.min(80, k / 7) }; });
   ok(`${tag}her aim camera zooms out to ${zm.far.toFixed(0)} m (her reach ${zm.reach.toFixed(0)} m, not 30) and in to ${zm.near.toFixed(1)} m (as any craft's)`, Math.abs(zm.far - zm.reach) < 1 && zm.reach > 150 && Math.abs(zm.near - zm.in) < 0.2, zm);
+  // [WP12 fix] her loss without a cut: the aim camera eased into the follow camera (both from her reach), frame by frame
+  // (the follow camera's distance once from naturalScale: 119 m → 457 m in one frame on a phone, and a 30° swing)
+  if (vp[0] !== 390) {
+    await page.evaluate(() => {
+      window.__cam = []; const R = Render3D.renderFlight;
+      Render3D.renderFlight = function (...a) { const r = R.apply(this, a), g = Render3D.gfx(), v = Flight.active; if (g && v && v.parts.length) { const C = g.camAt, bp = bodyPos(v.body, Flight.time), dx = C.x - bp.x - v.x, dy = C.y - bp.y - v.y, dz = C.z - v.z, L = v.toLocal(v.x + dx, v.y + dy, v.z + dz);
+        window.__cam.push({ t: Flight.time, d: Math.hypot(dx, dy, dz), a: Math.atan2(L.z, L.x), aim: !!Flight.aimCam }); } return r; };
+    });
+    await page.evaluate(() => window.__simWait(0.3, true));
+    await page.evaluate(() => { Ship.doom(Flight.active, Flight, 'sunk'); });
+    await page.evaluate(() => window.__simWait(2.5, true));
+    const cm = await page.evaluate(() => { const C = window.__cam, far = Ship.aimFar(Flight.active); let turn = 0, dr = 0;
+      for (let i = 1; i < C.length; i++) { const p = C[i - 1], c = C[i], dt = c.t - p.t; if (!(dt > 0)) continue; turn = Math.max(turn, (Math.abs(Math.atan2(Math.sin(c.a - p.a), Math.cos(c.a - p.a))) * 57.3) / dt); dr = Math.max(dr, Math.abs(c.d - p.d) / Math.max(1, p.d)); }
+      return { n: C.length, aimed: C.filter((c) => c.aim).length, turn: +turn.toFixed(0), dr: +dr.toFixed(3), d0: +C[0].d.toFixed(0), d1: +C[C.length - 1].d.toFixed(0), far: +far.toFixed(0) }; });
+    await shot(page, `lost-camera-${sz}`);
+    ok(`${tag}her loss: the aim camera eased into the follow camera (${cm.n} frames: at most ${cm.turn}°/s round her, ${(cm.dr * 100).toFixed(1)}% of its distance a frame; ${cm.d0} m → ${cm.d1} m, her reach ${cm.far} m)`,
+      cm.n > 8 && cm.aimed > 0 && cm.aimed < cm.n && cm.turn <= 90 && cm.dr <= 0.1 && cm.d1 <= cm.far * 1.15, cm);
+  }
   await pageErrors(page, tag + 'hud ');
   await ctx.close();
 }
@@ -704,6 +722,82 @@ for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, fa
   const s2 = await hudOf(page);
   await shot(page, 'sink-phone-lost-390x844');
   ok(`a phone's sinking: the diagram fills (${s0.W.toFixed(0)} → ${s1.W.toFixed(0)} m³, "${s1.alert}"); lost, the helm's lines go and the diagram stays with "${s2.hl}"`, s1.W > s0.W + 1 && s1.key !== s0.key && /^Flooding/.test(s1.alert) && s2.lost && s2.hull && s2.hl === 'ABANDON SHIP', { s0, s1, s2 });
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ---- [WP12 fix] her sounds' rules (Ship.sounds with a recording Sound, three ships and a stand-in flight), their loudness
+// (Sound.sea rendered offline through its own nodes, beside a tank's engine at full), and the holes' scorches held to her
+// plating (Ship.holeMarks: never over her deck edge, her keel or her ends)
+{
+  const tag = 'sound and scorches ', { ctx, page } = await open([1280, 720, false], tag);
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  const sr = await page.evaluate(() => {
+    const mk = (key, e) => { const T = TEMPLATES[key], ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), t = new Vessel(ps, adj, EARTH);
+      t.kind = T.kind; t.name = T.name; t.stages = computeStages(ps, adj, findControlPart(ps).id); t.rebuildGroups(); t.placeOnSurface(EARTH, siteAngle(EARTH, e), 0, 0, Math.PI); Ship.launch(t, { e, z: 0, yaw: Math.PI }); return t; };
+    const a = mk('arley', -3000), c1 = mk('cyclon', -3600), c2 = mk('cyclon', -5500), t0 = 5, b0 = bodyPos(EARTH, t0);
+    const F = { active: a, vessels: [a, c1, c2], running: true, paused: false, time: t0, camAbs: { x: b0.x + a.x, y: b0.y + a.y, z: a.z }, bridge: false, toast() {} };
+    const was = { clang: Sound.clang, torpedo: Sound.torpedo, sea: Sound.sea, separate: Sound.separate }, log = { clang: [], torp: [], sea: null, sep: 0 };
+    Sound.clang = (k, d) => log.clang.push(Math.round(d)); Sound.torpedo = (d, drop) => log.torp.push({ d: Math.round(d), drop: !!drop, t: +F.time.toFixed(2) }); Sound.sea = (L) => { log.sea = L ? { ...L } : null; }; Sound.separate = () => log.sep++;
+    const out = {};
+    try {
+      const step = (n = 3) => { for (let i = 0; i < n; i++) { F.time += 1 / 60; Ship.sounds(F, 1 / 60); } };
+      const hole = (v, ar) => { const h = v.parts.filter((p) => p.def.shull)[1]; (h.holes = h.holes || []).push({ x: h.x, y: h.y, z: 0, a: ar, fix: 0 }); };
+      step();
+      hole(a, 0.8); step(); out.first = log.clang.length; // (her first hole: a clang)
+      hole(c1, 3); step(); out.near = log.clang.length - out.first; // (a Cyclon 600 m off, its first hole)
+      hole(c2, 3); step(); out.far = log.clang.length - out.first - out.near; // (one 2.5 km off: none)
+      out.dist = [Math.hypot(c1.x - a.x, c1.y - a.y, c1.z - a.z), Math.hypot(c2.x - a.x, c2.y - a.y, c2.z - a.z)].map(Math.round);
+      // her close-in gun firing as she is lost: its buzz stops with her (the stale flag too)
+      const gun = a.ciws[0]; gun.gunOn = true; step(); out.buzz = log.sea && log.sea.ciws;
+      a.fate = 'sunk'; Ship.ciwsStep(F, 1 / 60); out.gunOff = gun.gunOn === false; gun.gunOn = true; step(); out.buzzLost = log.sea ? log.sea.ciws : 0; gun.gunOn = false; a.fate = undefined;
+      // a drop's splash where it meets the water (not at release); her own tube: one launch sound
+      const side = a.axis(0, 0, 1), r = Math.hypot(a.x, a.y, a.z), up = { x: a.x / r, y: a.y / r, z: a.z / r }, fw = a.axis(1, 0, 0), P = { x: a.x + side.x * 300 + up.x * 60, y: a.y + side.y * 300 + up.y * 60, z: a.z + side.z * 300 + up.z * 60 };
+      const s = { k: 'stor', b: EARTH, x: P.x, y: P.y, z: P.z, vx: fw.x * 60, vy: fw.y * 60, vz: fw.z * 60, dx: fw.x, dy: fw.y, dz: fw.z, t: 0, run: 0, ph: 'air', owner: { parts: [{}], name: 'Plane', kind: 'plane', body: EARTH }, spd: 22, depth: 6, dep: 0, range: 8000, cone: 0.5, acquire: 1500, dmg: 0, blast: 0, seek: 'none', drop: true, life: 600 };
+      Combat.S.shots.push(s);
+      let wet = null;
+      for (let i = 0; i < 1200 && Combat.S.shots.includes(s); i++) { if (!Ship.torpStep(s, 1 / 120, F)) break; if (s.ph === 'run' && wet == null) wet = +F.time.toFixed(2); F.time += 1 / 120; if (i % 2) Ship.sounds(F, 1 / 60); if (wet != null && F.time > wet + 0.2) break; }
+      s.dead = true; Combat.S.shots.splice(Combat.S.shots.indexOf(s), 1);
+      out.drop = { wet, played: log.torp.filter((x) => x.drop) };
+      log.torp.length = 0; log.sep = 0;
+      const tube = a.parts.find((q) => q.type === 'torpTube'); tube.ammo = 3;
+      const m = Ship.fireTorp(a, tube, F); step(6);
+      out.tube = { fired: !!m, torp: log.torp.length, sep: log.sep };
+      if (m) { m.dead = true; Combat.S.shots.splice(Combat.S.shots.indexOf(m), 1); }
+    } finally { Object.assign(Sound, was); }
+    // the scorches: a hole 0.3 m under her deck edge (the Arley's side), a missile's 3.5 m² there, and the RIB holed through
+    const z = mk('zodiak', -6500), marks = [];
+    for (const [v, ar, under] of [[a, 0.5, 0.3], [a, 3.46, 0.3], [a, 1.18, 1.5], [z, 20, 0.2]]) {
+      const H = v.parts.filter((p) => p.def.shull), p = H[Math.floor(H.length / 2)], S = shullOf(p.def), ring = S.rings[Math.floor(S.rings.length / 2)], x = ring.x, y = ring.yd - under;
+      p.holes = [{ x: p.x + x, y: p.y + y, z: partZ(p) + 50, a: ar, fix: 0 }];
+      const M = Ship.holeMarks(v)[0], own = { x: M.x - p.x, y: M.y - p.y };
+      marks.push({ ship: v.name, a: ar, s: +M.s.toFixed(2), c: +M.c.toFixed(2), top: +(own.y + 0.75 * M.s - ring.yd).toFixed(2), bot: +(own.y - 0.75 * M.s - ring.yk).toFixed(2), side: !M.ny && !M.nx });
+      p.holes = null;
+    }
+    return { ...out, marks };
+  });
+  ok(`[WP12] every hull hit clangs, the first too (${sr.first}; a Cyclon ${sr.dist[0]} m off: ${sr.near}), none past 1.5 km (one ${sr.dist[1]} m off: ${sr.far})`, sr.first === 1 && sr.near === 1 && sr.far === 0 && sr.dist[1] > 1500, sr);
+  ok(`[WP12] her close-in gun's buzz (${sr.buzz}) stops when she is lost: its flag cleared (${sr.gunOff}), and none from a lost ship (${sr.buzzLost})`, sr.buzz === 1 && sr.gunOff && sr.buzzLost === 0, sr);
+  ok(`[WP12] a dropped torpedo's splash as it meets the water (${sr.drop.wet} s: ${JSON.stringify(sr.drop.played)}), her own tube one launch sound (${sr.tube.torp} + ${sr.tube.sep})`,
+    sr.drop.wet != null && sr.drop.played.length === 1 && sr.drop.played[0].t >= sr.drop.wet && sr.drop.played[0].t < sr.drop.wet + 0.2 && sr.tube.fired && sr.tube.torp === 1 && sr.tube.sep === 0, sr);
+  ok(`[WP12] the holes' scorches on her plating: under her deck edge and over her keel (${sr.marks.map((m) => `${m.ship} ${m.a} m²: ${m.s} m, ${m.top} m to the edge`).join('; ')})`, sr.marks.every((m) => m.side && m.top <= 0.01 && m.bot >= -0.01 && m.s >= 0.05), sr.marks);
+  // the loudness: each mix a ship asks for, rendered offline (the master at the default 0.8), RMS in dB
+  const lv = await page.evaluate(async () => {
+    const SR = 44100, N = SR * 3, out = {};
+    const mk = () => { const off = new OfflineAudioContext(1, N, SR), RealAC = window.AudioContext; window.AudioContext = function () { return off; }; Sound.ctx = null; Sound.unlock(); window.AudioContext = RealAC;
+      Sound.master.gain.cancelScheduledValues(0); Sound.master.gain.value = 0.8; Sound._sea = null; Sound.aims = {}; return off; };
+    const loop = async (name, f) => { const off = mk(); f(); const d = (await off.startRendering()).getChannelData(0); let s = 0, pk = 0; for (let i = SR; i < d.length; i++) { s += d[i] * d[i]; pk = Math.max(pk, Math.abs(d[i])); } out[name] = { db: +(20 * Math.log10(Math.sqrt(s / (d.length - SR)))).toFixed(1), pk: +pk.toFixed(2) }; };
+    await loop('tank', () => Sound.engine(1, 1));
+    await loop('arley', () => Sound.sea({ turbine: 1, rpm: 1, hiss: 1, size: 1 }));
+    await loop('cyclon', () => Sound.sea({ diesel: 1, rpm: 1, hiss: 1, size: 0.5 }));
+    await loop('zodiak', () => Sound.sea({ petrol: 1, rpm: 1, hiss: 1, size: 0.08 }));
+    await loop('ciws', () => Sound.sea({ ciws: 1 }));
+    await loop('arleyCiws', () => Sound.sea({ turbine: 1, rpm: 1, hiss: 1, ciws: 1, size: 1 }));
+    Sound.ctx = null; Sound._sea = null;
+    return out;
+  });
+  ok(`[WP12] her sounds as loud as the game's others: a destroyer at flank ${lv.arley.db} dB, a Cyclon ${lv.cyclon.db}, a RIB ${lv.zodiak.db}, a close-in gun ${lv.ciws.db}, a tank at full ${lv.tank.db} (no clipping: ${lv.arleyCiws.pk})`,
+    lv.arley.db >= lv.tank.db - 3 && lv.cyclon.db >= lv.tank.db - 4 && lv.zodiak.db >= lv.tank.db - 8 && lv.zodiak.db < lv.arley.db && lv.ciws.db >= lv.tank.db - 3 && lv.arleyCiws.pk < 1, lv);
   await pageErrors(page, tag);
   await ctx.close();
 }

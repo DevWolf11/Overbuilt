@@ -5559,6 +5559,38 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     const sea = b === EARTH && SWL.on ? Ship.seaAt(b, BE, F) : 0;
     return b.radius + Math.max(groundAt(b, ca, gz), b === EARTH ? shipTop(ca, gz) : -Infinity, sea > -Infinity ? sea : 0) + SHIP.CAM.sea;
   }
+  // [WP12] A ship's aim camera handing over to the follow camera (she is lost, or her guns gone) without a cut: the eye
+  // swung from where the aim camera stood to where the follow camera stands (its way slerped, its distance eased) and the
+  // view from along the aim to her middle, over SHIP.CAM.ease s of the flight's time (paused, it waits); both from her
+  // reach, so neither jumps. Fed every frame
+  // with the camera's place (sim, from the focus) and mode; returns { x, y, z, lx, ly, lz } (the eye and where it looks,
+  // from the focus) while easing, else null. Ships only: any other craft returns null at the first test.
+  const SE = { v: null, frame: -1, t: -1, t0: 0, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0, out: { x: 0, y: 0, z: 0, lx: 0, ly: 0, lz: 0 } };
+  function shipEase(F, v, b, AC, other, D, fx, fy, fz, x, y, z) {
+    if (!isSea(v.kind) || v !== F.active || typeof SHIP === 'undefined') { SE.v = null; return null; }
+    if (AC) { SE.v = v; SE.frame = frameNo; SE.t = -1; SE.ax = x; SE.ay = y; SE.az = z; SE.dx = D.x; SE.dy = D.y; SE.dz = D.z; return null; }
+    if (other || SE.v !== v) { SE.v = null; return null; }
+    if (SE.t < 0) { // (the aim camera's last frame was the one before, and it gave way as she was lost or her guns went: the
+      // player's own step out of the aim view stays a cut, the follow camera answering the drag at once)
+      if (SE.frame !== frameNo - 1 || !(F.destroyed || v.fate || !(v.aimed && v.aimed.length))) { SE.v = null; return null; }
+      SE.t0 = F.time;
+    }
+    SE.t = Math.max(0, F.time - SE.t0); SE.frame = frameNo;
+    const T = SHIP.CAM.ease;
+    if (SE.t >= T) { SE.v = null; return null; }
+    const e = smoothstep(0, T, SE.t), da = Math.hypot(SE.ax, SE.ay, SE.az) || 1, db = Math.hypot(x, y, z) || 1;
+    let ux = lerp(SE.ax / da, x / db, e), uy = lerp(SE.ay / da, y / db, e), uz = lerp(SE.az / da, z / db, e);
+    const l = Math.hypot(ux, uy, uz);
+    if (l < 1e-3) { SE.v = null; return null; } // (straight across her: no way between to swing by)
+    const d = lerp(da, db, e), O = SE.out;
+    O.x = (ux / l) * d; O.y = (uy / l) * d; O.z = (uz / l) * d;
+    // (kept over the sea and the ground as both ends were)
+    const r = Math.hypot(fx + O.x, fy + O.y, fz + O.z), need = camFloor(b, fx + O.x, fy + O.y, fz + O.z, r, 2);
+    if (r < need) { const k = need / r; O.x = (fx + O.x) * k - fx; O.y = (fy + O.y) * k - fy; O.z = (fz + O.z) * k - fz; }
+    // (where it looks: from a point along the aim as far out as the eye stood, to her middle)
+    O.lx = (SE.ax + SE.dx * da) * (1 - e); O.ly = (SE.ay + SE.dy * da) * (1 - e); O.lz = (SE.az + SE.dz * da) * (1 - e);
+    return O;
+  }
   // how far from the body's centre a camera at (x, y, z), r3 out, must stay: lift over the drawn ground and the carriers
   function camFloor(b, x, y, z, r3, lift) {
     const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
@@ -5690,10 +5722,13 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
         const E = S.fpE || (S.fpE = v3()); E.x = rx; E.y = ry; E.z = rz; // (where the eye ended up: the tests')
       }
     }
+    const EZ = shipEase(F, v, b, AC, FP || FA || !!IM, D, vx, vy, vz, rx - vx, ry - vy, rz - vz); // [WP12] (a ship's aim camera eased into the follow camera; EZ: SB is the shadow box's)
+    if (EZ) { rx = vx + EZ.x; ry = vy + EZ.y; rz = vz + EZ.z; r3 = Math.hypot(rx, ry, rz); camAlt = r3 - R; }
     toView(rx - vx, ry - vy, rz - vz, T3);
     camera.position.set(T3.x, T3.y, T3.z);
     camera.up.set(0, 1, 0);
-    if (IM) { toView(IM.look.x - rx, IM.look.y - ry, IM.look.z - rz, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    if (EZ) { toView(EZ.lx, EZ.ly, EZ.lz, T3); camera.lookAt(T3.x, T3.y, T3.z); }
+    else if (IM) { toView(IM.look.x - rx, IM.look.y - ry, IM.look.z - rz, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else if (FP) { toView(FPU.x, FPU.y, FPU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(FPD.x, FPD.y, FPD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else if (AC) { toView(D.x, D.y, D.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else if (FA) { toView(PU.x, PU.y, PU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(PD.x, PD.y, PD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
@@ -7366,7 +7401,8 @@ void main() {
   }
   // [WP12] The holes in a hull (Ship.holeMarks: each on her skin, in part space, with its outward normal; read only, the
   // sim never reads these): a scorch round each (a blotch of the atlas, 2.2 × the hole's radius and 0.35 m more) and the
-  // hole itself dark in its middle (a soft blob, 1.1 × its radius), a patched one fainter; laid on her skin across its
+  // hole itself dark in its middle (a soft blob, 1.1 × its radius), a patched one fainter, both held to her plating (s, c:
+  // smaller and moved in where they would cross her deck edge, her keel or her ends); laid on her skin across its
   // normal, along her length. Within SCORCH_FAR of the camera, and never on a wreck or on one going down (the renderer
   // moves those), so a ship nothing has holed costs a look at her hull parts' hole lists.
   const HQ = { nx: 0, ny: 0, nz: 1 }, HP = v3(), HN = v3(), HA = v3();
@@ -7387,7 +7423,7 @@ void main() {
       across(HQ, DK.u, DK.w);
       const d = Math.hypot(bp.x + HP.x - camAbs.x - CAM_A.x, bp.y + HP.y - camAbs.y - CAM_A.y, HP.z - camAbs.z - CAM_A.z);
       if (d > SCORCH_FAR) continue;
-      const sc = Math.min(4, 2.2 * h.r + 0.35), core = Math.min(2.5, 1.1 * h.r + 0.1);
+      const sc = h.s, core = h.c; // (held to her plating by Ship.holeMarks: never over her gunwale)
       n = decalOn(n, HQ, HP, bp, DK.u, DK.w, sc, h.fix ? 0.45 : 0.8, 1 + ((((h.p.id * 7 + i * 3) % 4) + 4) % 4), d);
       n = decalOn(n, HQ, HP, bp, DK.u, DK.w, core, h.fix ? 0.3 : 0.95, 0, d);
     }

@@ -151,6 +151,7 @@ const Flight = {
 
   // The view's scale that frames a craft (planes lie on their side; a drone is small: the camera comes closer)
   naturalScale(v) {
+    if (isSea(v.kind) && typeof Ship !== 'undefined' && Ship.aimFar && typeof Render3D !== 'undefined' && Render3D.supported && !Render3D.failed && !Silly.on('retro2d')) { const H = typeof innerHeight !== 'undefined' ? innerHeight : 600; return H / 2 / Math.tan((25 * Math.PI) / 180) / Ship.aimFar(v); } // [WP12] (a ship's follow camera from her reach, the aim camera's own: a destroyer whole, a RIB close, and no jump between the two; the 2D view keeps its framing)
     const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
     const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w;
     const W = typeof innerWidth !== 'undefined' ? innerWidth : 800, H = typeof innerHeight !== 'undefined' ? innerHeight : 600;

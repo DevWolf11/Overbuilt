@@ -120,7 +120,7 @@ const SHIP = {
   //   listAlone°; it is critical past sinkK of her reserve buoyancy taken; ship sounds within `hear` m of the view; heel,
   //   trim and the waterline eased over `smooth` s for the diagram; her engines' size for their sound from 10^kw0 kW (a
   //   RIB's outboards: 0) over kwSpan decades (a destroyer's 80 MW: 1))
-  CAM: { near: 0.8, sea: 0.3 },      // [WP12] the bridge view's eye at least `near` m over any of her own parts it would be in, and `sea` m over the wave at it
+  CAM: { near: 0.8, sea: 0.3, rim: 0.75, ease: 1.5 }, // [WP12] the bridge view's eye at least `near` m over any of her own parts it would be in, and `sea` m over the wave at it; a hole's scorch drawn out to `rim` of its half-size (held to her plating by it); the aim camera eased into the follow camera over `ease` s when she is lost
   // ---- the builder (§11.3) [WP4]: the still-water float, top speed, tap placement and the warnings
   BUILD: { tol: 2e-4, iters: 8, dA: 0.003, dGM: 0.02, gmLow: 0.3, heel: 2, trim: 1, free: 0.25, capsize: 60,
            vMax: 40, vStep: 0.25, turn: [4.5, 0.25, 1.2, 10], steerA: 1.5, inM: 0.03, step: 0.25, pair: 0.4, wash: 0.05, dry: 0.5 },
@@ -4920,9 +4920,12 @@ const Ship = (() => {
   }
 
   // ---- the hole decals' places [WP12] (render3d syncDecals: read only): each hole of v's hull parts on her skin, in
-  // part space: the point (x, y, z), the outward normal (nx, ny, nz: a deck's up, a side's out, the bottom's down) and the
-  // hole's own radius r (m), patched (fix 1) or not. Worked out again only when her holes change (their count and sizes).
-  const HM = new WeakMap(), SECH = [0, 0, 0, 0, 0], _hp = v3();
+  // part space: the point (x, y, z), the outward normal (nx, ny, nz: a deck's up, a side's out, the bottom's down), the
+  // hole's own radius r (m), patched (fix 1) or not, and the half-sizes of its scorch (s) and its dark core (c), held to
+  // her plating: a side's between her keel and her deck edge, a deck's within her beam, both short of her ends, the patch
+  // moved in from the edge it would cross (its rim at CAM.rim of its half-size), so no scorch rises over her gunwale onto
+  // her deckhouse or the sky. Worked out again only when her holes change (their count and sizes).
+  const HM = new WeakMap(), SECH = [0, 0, 0, 0, 0], _hp = v3(), _hmP = v3();
   function holeMarks(v) {
     const S = v && v.sh;
     if (!S) return NONE;
@@ -4941,8 +4944,19 @@ const Ship = (() => {
         if (yd - y < 0.25 * (yd - yk) && Math.abs(z) < 0.6 * Math.max(sec[2], 0.1)) { y = yd; ny = 1; } // (on her deck)
         else if (y - yk < 0.1 * (yd - yk) && Math.abs(z) < 0.3 * Math.max(sec[3], 0.1)) { y = yk; ny = -1; } // (her bottom)
         else { const hb = secHalf(sec, d.shull.wl, clamp(y, yk + 1e-3, yd - 1e-3)), b = hb > 0 ? hb : Math.max(sec[3], 0.1); nz = z < 0 ? -1 : 1; z = nz * b; } // (her side, where it stands at that height)
+        // (the scorch and the core held to the plating round it: rim·half-size from the hole to its edges, else smaller and
+        // moved in; along her, short of her own ends)
+        const r = Math.sqrt(Math.max(h.a, 1e-4) / Math.PI), rim = SHIP.CAM.rim;
+        let sc = Math.min(4, 2.2 * r + 0.35), co = Math.min(2.5, 1.1 * r + 0.1);
+        const G = hullGeo(v, S), P0 = partOf(p, x, y, z, _hmP), a = _ha(S, P0.x, P0.y), room = Math.min(a - G.a0, G.a1 - a);
+        if (room > 0) { sc = Math.min(sc, room / rim); co = Math.min(co, room / rim); }
+        if (!ny) { // (her side: under her deck edge, over her keel; at its new height, where her side stands there)
+          const span = (yd - yk) / (2 * rim); sc = Math.min(sc, span); co = Math.min(co, span); y = clamp(y, yk + rim * sc, yd - rim * sc);
+          const hb = secHalf(sec, d.shull.wl, clamp(y, yk + 1e-3, yd - 1e-3)); if (hb > 0) z = nz * hb;
+        }
+        else { const hb = Math.max(ny > 0 ? sec[2] : sec[3], 0.1); sc = Math.min(sc, hb / rim); co = Math.min(co, hb / rim); z = clamp(z, -(hb - rim * sc), hb - rim * sc); }
         const P = partOf(p, x, y, z, v3()), o = partPt(p, 0, 0), ax = partPt(p, 0, ny);
-        list.push({ x: P.x, y: P.y, z: P.z, nx: ny ? ax.x - o.x : 0, ny: ny ? ax.y - o.y : 0, nz, r: Math.sqrt(Math.max(h.a, 1e-4) / Math.PI), fix: (h.fix || 0) >= 1, p });
+        list.push({ x: P.x, y: P.y, z: P.z, nx: ny ? ax.x - o.x : 0, ny: ny ? ax.y - o.y : 0, nz, r, s: Math.max(sc, 0.05), c: Math.max(Math.min(co, sc), 0.05), fix: (h.fix || 0) >= 1, p });
       }
     }
     HM.set(v, { key, of: v.parts, list });
