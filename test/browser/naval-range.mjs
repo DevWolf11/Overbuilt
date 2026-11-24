@@ -4,11 +4,11 @@
 //    ([WP10 review]: the warp is held only while a Hostile wave is on her), the hulk moored 2 km ahead and three ships
 //    steaming their loops; her 127 mm through the gunner's sight on the hulk, FIRE held, until it sinks: SUNK, the bar's
 //    "1 sunk" and the best shot (ships held to their own physics: nothing scripted but the aim);
-//  - Hostile, her bow east in open water (Flight.start at a sea place), the waves brought in 2.5-3 km off (SHIP.NRANGE.spawn,
-//    the test's: out of sight they come 7-8 km off, minutes away at the headless sim's pace): the first wave 20 s in, two
-//    Cyclons from the east that close and fight, the warp held at 1× with them on her and the bar in its place; she
-//    survives 60 s of Flight.time with her own guns, CIWS and the computer's ships' fire about her; the bar's wave and
-//    ships left;
+//  - Hostile, her bow east in open water (Flight.start at a sea place), the waves brought in 1.5-1.8 km off, inside their
+//    30 mm's reach (SHIP.NRANGE.spawn, the test's: out of sight they come 7-8 km off, minutes away at the headless sim's
+//    pace): the first wave 20 s in, two Cyclons from the east that fight, the warp held at 1× with them on her and the bar
+//    in its place; she survives 60 s of Flight.time with her own guns (held the first 20 s), CIWS and the computer's ships'
+//    fire about her (their rounds counted at their guns); the bar's wave and ships left;
 //  - on a phone in portrait (390×844) and a desktop (1280×720): the bar on the screen, clear of the helm panel and the
 //    minimap, screenshots (naval-*.png) to look at; no console errors (App.frame swallows them).
 // Times on Flight.time (headless Chromium runs the sim at about 0.08× real time: the drawing is off while waiting,
@@ -107,17 +107,18 @@ for (const vp of [[1280, 720, false], [390, 844, true]]) {
   {
     const { ctx, page } = await open(vp, tag + 'hostile ', { targets: 'hostile' });
     await sail(page, { e: 10000, z: -1100, yaw: 0 });
-    const set = await page.evaluate(async () => { SHIP.NRANGE.spawn = [2500, 3000]; await window.__simWait(1.5); return { mode: Ship.naval && Ship.naval.mode, toasts: [...document.querySelectorAll('.toast')].map((e) => e.textContent).join(' | ') }; });
+    const set = await page.evaluate(async () => { SHIP.NRANGE.spawn = [1500, 1800]; await window.__simWait(1.5); return { mode: Ship.naval && Ship.naval.mode, toasts: [...document.querySelectorAll('.toast')].map((e) => e.textContent).join(' | ') }; });
     const bar0 = await barOf(page);
     const wave = await page.evaluate(async () => { await window.__until(() => Ship.naval && Ship.naval.left.length > 0, 30); await window.__simWait(1); const L = Ship.naval.left, me = Flight.active;
       return { wave: Ship.naval.wave, ships: L.map((v) => v.ai.key + '@' + v.ai.skill.toFixed(1)), d: L.map((v) => Math.round(Math.hypot(v.x - me.x, v.y - me.y, v.z - me.z))), east: L.map((v) => Math.round(Ship._ai.ezOf(v, {}).e - Ship._ai.ezOf(me, {}).e)), t: Flight.time, warpHeld: document.querySelector('#warp').hidden, toast: [...document.querySelectorAll('.toast')].map((e) => e.textContent).filter((x) => /^Wave 1/.test(x))[0] || '' }; });
-    // 60 s of the wave: she holds her ground (Half ahead, the heading held) and fights with her guns and CIWS on the aim
-    // nearest her, as a player would; a picture once they are firing
+    // 60 s of the wave: she holds her ground (Half ahead, the heading held), her guns' fire held for the first 20 s as they
+    // come on (their bursts at her), then fights with her guns and CIWS on the aim nearest her, as a player would; a
+    // picture once they are firing
     const fight = await page.evaluate(async () => { const v = Flight.active, L = Ship.naval.left.slice(); Ship.setTel(v, 2); window.__sel('nGun127'); const t0 = Flight.time; let fired = 0, seenAt = null;
       const rounds = () => L.reduce((s, o) => s + o.parts.reduce((q, p) => q + (p.def.weapon && p.def.aim ? (p.shots || 0) : 0), 0), 0), r0 = rounds(); // (their guns' rounds: shots counted at the gun)
       while (Flight.time < t0 + 60 && !Flight.destroyed) {
         const near = L.filter((o) => !o.dead && !o.fate).sort((a, b) => Math.hypot(a.x - v.x, a.y - v.y, a.z - v.z) - Math.hypot(b.x - v.x, b.y - v.y, b.z - v.z))[0];
-        if (near) { await window.__aimAt(near); Flight.touchFire = true; }
+        if (near) { await window.__aimAt(near); Flight.touchFire = Flight.time >= t0 + 20; }
         await window.__simWait(5);
         if (seenAt == null && rounds() > r0) seenAt = Flight.time;
       }
@@ -128,9 +129,9 @@ for (const vp of [[1280, 720, false], [390, 844, true]]) {
     const bar1 = await barOf(page);
     await shot(page, `hostile-${sz}`);
     ok(`${tag}Hostile: the range on, the bar "${bar0.text}" (clear of the helm, the minimap and the warp: ${!bar0.wover}); wave ${wave.wave} (${wave.ships.join(', ')}) ${wave.d.join(' and ')} m off at ${wave.t.toFixed(0)} s, east of her (${wave.east.join(', ')} m), "${wave.toast}"; the warp held with them on her (${wave.warpHeld})`,
-      set.mode === 'hostile' && bar0.shown && bar0.inside && !bar0.helm && !bar0.map && !bar0.wover && /Hostile/.test(bar0.text) && wave.wave === 1 && wave.ships.join() === 'cyclon@0.2,cyclon@0.2' && wave.east.every((x) => x > 1500) && /from the (east|north-east|south-east)/.test(wave.toast) && wave.warpHeld, { set, bar0, wave });
+      set.mode === 'hostile' && bar0.shown && bar0.inside && !bar0.helm && !bar0.map && !bar0.wover && /Hostile/.test(bar0.text) && wave.wave === 1 && wave.ships.join() === 'cyclon@0.2,cyclon@0.2' && wave.east.every((x) => x > 1000) && /from the (east|north-east|south-east)/.test(wave.toast) && wave.warpHeld, { set, bar0, wave });
     ok(`${tag}...she survives ${fight.secs} s of it (afloat: ${fight.alive}, ${fight.holes} m² of holes), the wave firing ${fight.fired} rounds at her (from ${fight.seenAt ? fight.seenAt.toFixed(0) + ' s' : '—'}; ${fight.st.join(', ')} at ${fight.d.join(', ')} m); the bar "${bar1.text}"`,
-      fight.secs >= 60 && fight.alive && bar1.shown && bar1.inside && /Hostile/.test(bar1.text), { fight, bar1 });
+      fight.secs >= 60 && fight.alive && fight.fired > 0 && bar1.shown && bar1.inside && /Hostile/.test(bar1.text), { fight, bar1 });
     await pageErrors(page, tag + 'hostile ');
     await ctx.close();
   }
