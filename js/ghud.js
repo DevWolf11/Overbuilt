@@ -586,7 +586,7 @@ const GHUD = (() => {
     const M = mp() && typeof MPUI !== 'undefined' && MPUI.scope, mk = M ? M.x + M.y * 1e4 : 0; // (a room's own scope, on wide screens: placed again as it comes)
     if (S.P && now - S.placeAt < 1000 && S.W === W && S.H === H && S.sight === !!F.sight && S.mk === mk) return S.P;
     S.placeAt = now; S.W = W; S.H = H; S.sight = !!F.sight; S.mk = mk;
-    const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar'), tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
+    const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar') || rect('#naval-bar'), /* [WP10] the Naval Range's bar */ tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
     const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + (Combat.S.rwrBox.lines === 2 ? 28 : 14) } : null;
     const ms = M ? { left: M.x - M.R, right: M.x + M.R, top: M.y - M.R, bottom: M.y + M.R + 4 } : null;
     // (and the controls one by one: a custom layout may have moved them out of their column, controls.js)

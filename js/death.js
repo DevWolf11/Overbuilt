@@ -908,7 +908,7 @@ const Death = (() => {
     if (TOP.t === fb.t && TOP.W === W && TOP.H === H) return TOP.boxes;
     TOP.t = fb.t; TOP.W = W; TOP.H = H; TOP.boxes = [];
     if (typeof document === 'undefined') return TOP.boxes;
-    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar']) {
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar', '#naval-bar']) { // ([WP10] the Naval Range's bar)
       const e = document.querySelector(q);
       if (!e || e.hidden) continue;
       const r = e.getBoundingClientRect();

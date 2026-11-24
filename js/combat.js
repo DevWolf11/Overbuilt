@@ -1517,7 +1517,7 @@ const Combat = (() => {
       }
       // enemy fighters in hostile mode: two at a time
       if (hostile() && !F.destroyed) {
-        const alive = F.vessels.filter((o) => isFighter(o) && !o.ai.down && o.control && !o.dead);
+        const alive = F.vessels.filter((o) => isFighter(o) && !o.ai.strike && !o.ai.down && o.control && !o.dead); // ([WP10] the Naval Range's strike aircraft aren't this range's: its own two still come)
         S.fighterT -= dt;
         if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed && !(v.kind === 'drone' && v.carrier))) { // (a tank's own bay drone is the tank's: no jets for it, review P5-MODES-2)
           const b = spawnFighter(F); S.fighterT = 45;
@@ -1653,7 +1653,7 @@ const Combat = (() => {
     if (now - LP.at < 1000 && now >= LP.at && LP.W === W && LP.H === H && LP.key === key) return LP.boxes;
     LP.at = now; LP.W = W; LP.H = H; LP.key = key; LP.boxes = [];
     if (typeof document === 'undefined') return LP.boxes;
-    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar', '#flight-alert']) {
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar', '#naval-bar', '#flight-alert']) { // ([WP10] the Naval Range's bar)
       const e = document.querySelector(q);
       if (!e || e.hidden) continue;
       const r = e.getBoundingClientRect();

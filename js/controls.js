@@ -227,7 +227,7 @@ const Controls = (() => {
   };
   const has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
   // the panels the controls must stay clear of when the HUD grows (fit)
-  const PANELS = ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar'];
+  const PANELS = ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar', '#naval-bar']; // ([WP10] the Naval Range's bar)
   const S = {
     z: 1, // the HUD's scale (--ui-scale): the screen's own times UI size, held to what fits (fit)
     want: 1, nat: 1, // the scale UI size asks for, and the screen's own (UI size 100%)
