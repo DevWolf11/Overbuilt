@@ -465,10 +465,23 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   const h0 = await hudOf(page);
   ok(`${tag}the hull diagram under her helm panel, inside the flight data (${L0.cv ? Math.round(L0.cv.r - L0.cv.l) + '×' + Math.round(L0.cv.b - L0.cv.t) : 'none'}), "${h0.hl}" under it; ${vp[2] ? 'HOLD, DC and CIWS over the lever, lit as she is' : 'no touch buttons on a desktop'}`,
     h0.hull && !!L0.cv && L0.cv.l >= L0.tel.l && L0.cv.r <= L0.tel.r && L0.cv.b <= L0.tel.b && L0.rungs.r <= L0.tel.r && L0.hl.r <= L0.tel.r && L0.tel.b < L0.H && (vp[2] ? /^(no heel|\d+° (port|stbd))/ : /^Heel \d+°/).test(h0.hl) && (vp[2] ? h0.btn.join() === 'HOLD:true,DCANY:false,CIWS:true' : h0.btn.join() === ',,'), { h0, L0 });
-  // her longest heel and trim words still inside the flight data (they once widened the helm panel past it)
-  const lw = await page.evaluate(() => { const v = Flight.active, h = v.heel, t = v.trim; v.heel = 0.21; v.trim = -0.06; Ship._hud.HD.v = null; Ship.diagram(Flight); v.heel = h; v.trim = t;
-    const r = (s) => document.querySelector(s).getBoundingClientRect(), T = r('#flight-ui .telemetry'); return { hl: document.querySelector('#ship-helm .sh-hl').textContent, in: r('#ship-helm .sh-hl').right <= T.right + 0.5 && r('#ship-helm .sh-rungs').right <= T.right + 0.5 && r('#ship-helm .sh-bar').right <= T.right + 0.5 }; });
-  ok(`${tag}her heel and trim at their longest ("${lw.hl}") keep the helm panel inside the flight data`, lw.in && /12° stbd/.test(lw.hl) && /3° stern/.test(lw.hl), lw);
+  // her longest heel and trim words still inside the flight data (they once widened the helm panel past it), and [WP12 fix]
+  // every word of them on show at the heels and trims a sinking ship reaches (two-digit ones cut "stbd" and "stern" on a
+  // desktop), a capsized hull's trim folded (151° read for one level fore and aft: 29°)
+  const lw = await page.evaluate(() => { const v = Flight.active, h = v.heel, t = v.trim, D = Math.PI / 180, out = [];
+    const r = (s) => document.querySelector(s).getBoundingClientRect(), T = r('#flight-ui .telemetry');
+    let inP = true;
+    for (const [a, b] of [[12, -3.4], [12, -10], [-40, -20], [-25, -15], [31, -18], [158, 151]]) {
+      v.heel = a * D; v.trim = b * D; Ship._hud.HD.v = null; Ship.diagram(Flight);
+      const sp = [...document.querySelectorAll('#ship-helm .sh-hl span')];
+      out.push({ txt: sp.map((e) => e.textContent).join(' | '), fit: sp.every((e) => e.scrollWidth <= e.clientWidth + 0.5) });
+      inP = inP && r('#ship-helm .sh-hl').right <= T.right + 0.5 && r('#ship-helm .sh-rungs').right <= T.right + 0.5 && r('#ship-helm .sh-bar').right <= T.right + 0.5;
+    }
+    v.heel = h; v.trim = t; Ship._hud.HD.v = null; Ship.diagram(Flight);
+    return { hl: out[0].txt, out, in: inP }; });
+  const want = [['12° stbd', '3° stern'], ['12° stbd', '10° stern'], ['40° port', '20° stern'], ['25° port', '15° stern'], ['31° stbd', '18° stern'], ['158° stbd', '29° bow']];
+  ok(`${tag}her heel and trim words in full at every heel and trim a sinking ship shows (${lw.out.map((o) => `"${o.txt}"`).join(', ')}), the helm panel inside the flight data`,
+    lw.in && lw.out.every((o, i) => o.fit && want[i].every((w) => o.txt.includes(w))), lw);
   {
     const L = await page.evaluate(layout);
     for (const [k, s2] of [['hold', '#btn-shold'], ['dc', '#btn-sdc'], ['ciws', '#btn-sciws']]) L.items[k] = await page.evaluate((s2) => { const r = document.querySelector(s2).getBoundingClientRect(); return r.width ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; }, s2);
@@ -513,7 +526,14 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   await page.evaluate(() => window.__simWait(1.5, true)); await frames(page, 2);
   const f1 = await hudOf(page);
   await shot(page, `flooding-${sz}`);
-  ok(`${tag}flooding: the water in (${f1.W.toFixed(1)} m³), the diagram redrawn with it, the alert line "${f1.alert}"`, f1.W > 0 && f1.key !== k0 && /^Flooding · compartments? \d/.test(f1.alert), { f1, k0 });
+  // [WP12 fix] the compartments named by the numbers on the diagram (a desktop's, every one drawn: a sliver's or a short
+  // one's that won't fit its cell isn't, nor any on a phone's strip), else where along her; each number clear of her deck
+  // line, inside its cell
+  const nu = await page.evaluate(() => { const H = Ship._hud.HD; return { nums: H.nums ? [...H.nums] : [], at: (H.numAt || []).map((a) => a.map((x) => +x.toFixed(1))) }; });
+  const named = (f1.alert.match(/compartments? ([\d, ]+)/) || [, ''])[1].split(',').map((x) => +x.trim()).filter(Boolean);
+  ok(`${tag}flooding: the water in (${f1.W.toFixed(1)} m³), the diagram redrawn with it, the alert line "${f1.alert}" naming only what the diagram shows (numbers ${nu.nums.join(', ') || 'none'})`,
+    f1.W > 0 && f1.key !== k0 && (named.length ? named.every((n) => nu.nums.includes(n)) : /^Flooding · (forward|amidships|aft|all along her)/.test(f1.alert)) && (vp[2] ? !nu.nums.length && !named.length : nu.nums.length >= 3)
+    && nu.at.every(([, , y, yd]) => y >= yd + 2), { f1, k0, nu, named });
   // her holes on her skin: scorches and dark holes (the decals). The shell's on her forecastle seen from aft over her gun
   // (the aim along her heading, 20° down, the camera 30 m back) on every screen; the one in her side from abeam (the aim
   // to port, 55 m back) on a desktop, whose wider view holds it as far from the gun

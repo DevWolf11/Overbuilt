@@ -4526,7 +4526,7 @@ const Ship = (() => {
     const v = F && F.active, sh = v && isSea(v.kind) && !v.dead && v.parts.length ? v.sh : null, E = hudEl();
     btns(F, sh ? v : null); // [WP12] (the touch buttons: shown with a ship's helm)
     if (!E) return;
-    if (!sh) { if (!E.hidden) E.hidden = true; HUD.key = ''; HD.key = ''; HUD.tel = null; return; }
+    if (!sh) { if (!E.hidden) E.hidden = true; HUD.key = ''; HD.key = ''; HD.nums = null; HUD.tel = null; return; }
     const lost = !!F.destroyed || !!v.fate; // [WP12] (lost: the diagram alone, while she goes down)
     if (E.hidden) E.hidden = false;
     if (E.classList.contains('lost') !== lost) E.classList.toggle('lost', lost);
@@ -4574,7 +4574,7 @@ const Ship = (() => {
       }
       const P = top.slice();
       for (let i = bot.length - 2; i >= 0; i -= 2) P.push(bot[i], bot[i + 1]);
-      out.polys.push({ p, P });
+      out.polys.push({ p, P, nt: top.length / 2 }); // (nt: its first nt points are her deck's)
     }
     S.comps.forEach((c, i) => {
       const A = partPt(c.p, c.lo, 0), B = partPt(c.p, c.hi, 0), a = _ha(S, A.x, A.y), b = _ha(S, B.x, B.y);
@@ -4583,6 +4583,20 @@ const Ship = (() => {
     [...out.comps].sort((x, y) => y.a0 + y.a1 - x.a0 - x.a1).forEach((q, k) => { q.no = k + 1; }); // (numbered from the bow, as a ship's are)
     return (S._hg = out);
   }
+  // her deck's height (u) at a along hull outline q (its deck points, linear between them; the nearest end past them)
+  function deckU(q, a) {
+    const P = q.P, n = q.nt;
+    let best = NaN, bd = Infinity;
+    for (let i = 0; i + 1 < n; i++) {
+      const a0 = P[2 * i], a1 = P[2 * i + 2];
+      if ((a - a0) * (a - a1) <= 0 && a0 !== a1) return P[2 * i + 1] + ((a - a0) / (a1 - a0)) * (P[2 * i + 3] - P[2 * i + 1]);
+    }
+    for (let i = 0; i < n; i++) { const d = Math.abs(P[2 * i] - a); if (d < bd) { bd = d; best = P[2 * i + 1]; } }
+    return best;
+  }
+  // her trim for the diagram (rad, + bow down): v.trim folded into −90°..90° (its atan2 over her up read 151° for a
+  // capsized hull lying level fore and aft: 29°)
+  function trimOf(v) { const t = v.trim || 0; return Math.abs(t) > Math.PI / 2 ? Math.sign(t) * (Math.PI - Math.abs(t)) : t; }
   const DC_ = '#ffffff', SEA_ = 'rgba(52, 140, 214, ', HULL_ = 'rgba(150, 185, 230, 0.16)', EDGE_ = 'rgba(219, 228, 240, 0.6)';
   // where fire p burns on her (part space): a hull's where it was lit (fireSpot), anything else its middle
   const _fsp = v3();
@@ -4592,15 +4606,16 @@ const Ship = (() => {
   function diagram(F, v, S) {
     const box = HUD.hull, cv = HUD.cv, show = S.comps.length > 0 && !!cv;
     if (box.hidden === show) box.hidden = !show;
-    if (!show) { HD.key = ''; return; }
+    if (!show) { HD.key = ''; HD.nums = null; return; }
     const now = typeof performance !== 'undefined' ? performance.now() : 0;
     if (HD.key && now >= HD.at && now - HD.at < 1000 / SHIP.HUD.hz) return;
     const dt = HD.v === v && now > HD.at ? Math.min(2, (now - HD.at) / 1000) : 0;
     HD.at = now;
     // (heel, trim and her height over the still water, eased: what flooding does to her, not each wave's lift)
     const k = dt > 0 ? 1 - Math.exp(-dt / SHIP.HUD.smooth) : 1, h0 = seaH(v, S);
-    if (HD.v !== v || !(HD.h0 === HD.h0)) { HD.v = v; HD.heel = v.heel || 0; HD.trim = v.trim || 0; HD.h0 = h0; }
-    else { HD.heel += ((v.heel || 0) - HD.heel) * k; HD.trim += ((v.trim || 0) - HD.trim) * k; HD.h0 += (h0 - HD.h0) * k; }
+    const tr = trimOf(v);
+    if (HD.v !== v || !(HD.h0 === HD.h0)) { HD.v = v; HD.heel = v.heel || 0; HD.trim = tr; HD.h0 = h0; HD.nums = null; }
+    else { HD.heel += ((v.heel || 0) - HD.heel) * k; HD.trim += (tr - HD.trim) * k; HD.h0 += (h0 - HD.h0) * k; }
     const z = (typeof Controls !== 'undefined' && Controls.z) || 1, dpr = (typeof App !== 'undefined' && App.dpr) || (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
     if (!HD.sz || HD.sz.z !== z) { const r = cv.getBoundingClientRect(); HD.sz = { w: r.width, h: r.height, z }; } // (measured again when it resizes, ResizeObserver, or the HUD's size changes)
     const W = HD.sz.w / z, H = HD.sz.h / z;
@@ -4673,9 +4688,20 @@ const Ship = (() => {
         if (yb > yt) { g.beginPath(); g.moveTo(X(a), yt); g.lineTo(X(a), yb); g.stroke(); }
       }
     }
+    // (each inside its cell just under her deck, over a dark halo so her outline's blink and the water never strike it
+    // through; only where it fits: the alert line names a compartment by number only when its number is drawn, HD.nums)
+    const nums = (HD.nums = new Set()), at = (HD.numAt = []); // (numAt: [number, x, its top, her deck's y there]: the tests')
     if (!small) {
-      g.font = '600 7px "IBM Plex Mono", ui-monospace, monospace'; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillStyle = 'rgba(233, 237, 241, 0.75)';
-      for (const q of G.comps) if (X(q.a1) - X(q.a0) >= 9 && q.poly) g.fillText(String(q.no), (X(q.a0) + X(q.a1)) / 2, pad + 1);
+      g.font = '600 7px "IBM Plex Mono", ui-monospace, monospace'; g.textAlign = 'center'; g.textBaseline = 'top'; g.lineJoin = 'round'; g.lineWidth = 2.4;
+      for (const q of G.comps) {
+        if (!q.poly) continue;
+        const t = String(q.no), x0 = X(q.a0), x1 = X(q.a1), am = (q.a0 + q.a1) / 2, yd = Y(deckU(q.poly, am)), yk = Y(G.u0);
+        if (x1 - x0 < g.measureText(t).width + 2 || yk - yd < 12) continue;
+        const y = Math.min(yd + 2.5, H - 9);
+        g.strokeStyle = 'rgba(10, 14, 20, 0.85)'; g.strokeText(t, (x0 + x1) / 2, y);
+        g.fillStyle = 'rgba(233, 237, 241, 0.9)'; g.fillText(t, (x0 + x1) / 2, y);
+        nums.add(q.no); at.push([q.no, (x0 + x1) / 2, y, yd]);
+      }
     }
     // holes (red; patched: a dark ring), fires (orange, flickering), the damage-control parties (white; at work: ringed)
     const dot = (x, y, r, fill, stroke) => { g.beginPath(); g.arc(x, y, r, 0, 2 * Math.PI); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1; g.stroke(); } };
@@ -4694,7 +4720,13 @@ const Ship = (() => {
     const lost = !!v.fate, hd = Math.round(HD.heel * deg), td = Math.round(HD.trim * deg);
     // (on a phone's strip the short words: "12° stbd", "3° stern", "no heel", "no trim"; else "Heel 12° stbd", "Trim 3° stern")
     const hv = hd ? `${Math.abs(hd)}° ${hd > 0 ? 'stbd' : 'port'}` : '', tv = td ? `${Math.abs(td)}° ${td > 0 ? 'bow' : 'stern'}` : '';
-    const t1 = lost ? 'ABANDON SHIP' : small ? hv || 'no heel' : `Heel ${hv || '0°'}`, t2 = lost ? '' : small ? tv || 'no trim' : `Trim ${tv || '0°'}`;
+    let t1 = lost ? 'ABANDON SHIP' : small ? hv || 'no heel' : `Heel ${hv || '0°'}`, t2 = lost ? '' : small ? tv || 'no trim' : `Trim ${tv || '0°'}`;
+    if (!lost && !small) { // (a desktop's long words while both fit the line, else the phone's short ones: "158° port  29° stern")
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      if (!HD.hlFont && typeof getComputedStyle === 'function') { const c = getComputedStyle(HUD.heel); HD.hlFont = `${c.fontWeight} ${c.fontSize} ${c.fontFamily}`; }
+      if (HD.hlFont) g.font = HD.hlFont;
+      if (g.measureText(t1).width + g.measureText(t2).width + 8 > W) { t1 = hv || 'no heel'; t2 = tv || 'no trim'; }
+    }
     if (HUD.heel.textContent !== t1) HUD.heel.textContent = t1;
     if (HUD.trim.textContent !== t2) HUD.trim.textContent = t2;
     if (HUD.hl.classList.contains('lost') !== lost) HUD.hl.classList.toggle('lost', lost);
@@ -4768,6 +4800,12 @@ const Ship = (() => {
     }
     return W;
   }
+  // where along her points a (her length's thirds: 'forward', 'amidships', 'aft'), bow first, each once
+  function placesOf(G, as) {
+    const at = new Set();
+    for (const a of as) { const f = (a - G.a0) / Math.max(G.a1 - G.a0, 1); at.add(f < 1 / 3 ? 'aft' : f > 2 / 3 ? 'forward' : 'amidships'); }
+    return ['forward', 'amidships', 'aft'].filter((x) => at.has(x));
+  }
   function alertNow(v, S, F, now) {
     const HU = SHIP.HUD, shots = typeof Combat !== 'undefined' ? Combat.S.shots : NONE;
     if (S.vtot == null) hullVol(S);
@@ -4795,21 +4833,25 @@ const Ship = (() => {
     let mt = 0;
     for (const p of v.parts) if (p.magT > mt && !p.magUp) mt = p.magT;
     if (mt > 0) return { text: `Magazine fire! · ${Math.max(1, Math.ceil(SHIP.MAG.t - mt))} s`, crit: true, k: 'mag' };
-    // flooding: a compartment whose water rose in the last HUD.floodT s (floodNow)
-    const fl = FL.map((q) => q.no);
+    // flooding: a compartment whose water rose in the last HUD.floodT s (floodNow), by its number where the diagram shows
+    // every one named (a desktop's), else where along her (a phone's strip has no numbers, and a sliver's or a short one's
+    // won't fit its cell)
+    const nums = HD.v === v ? HD.nums : null, byNo = !!nums && FL.every((q) => nums.has(q.no));
+    const fl = byNo ? [...new Set(FL.map((q) => q.no))] : [];
     const ld = Math.round((AL.heel * 180) / Math.PI), list = Math.abs(ld) >= HU.list ? ` · list ${Math.abs(ld)}° ${ld > 0 ? 'stbd' : 'port'}` : '';
-    if (fl.length) {
+    if (FL.length) {
       fl.sort((a, b) => a - b);
       const res = Math.max(1, SHIP.RHO * (S.vtot || 0) * SHIP.FATE.reserve - v.mass); // (her reserve: what more she could take, kg)
-      const which = fl.length === 1 ? `compartment ${fl[0]}` : fl.length <= 3 ? `compartments ${fl.join(', ')}` : `${fl.length} compartments`;
+      const at = placesOf(G, FL.map((q) => (q.a0 + q.a1) / 2));
+      const which = !byNo ? (at.length === 3 ? 'all along her' : at.join(' and ')) : fl.length === 1 ? `compartment ${fl[0]}` : fl.length <= 3 ? `compartments ${fl.join(', ')}` : `${fl.length} compartments`;
       return { text: `Flooding · ${which}${list}`, crit: (S.vtot > 0 && SHIP.RHO * W > HU.sinkK * res) || Math.abs(ld) >= 20, k: 'flood' };
     }
     if (Math.abs(ld) >= HU.listAlone && (W > 4 * SHIP.FLOOD.wMin || Math.abs(ld) >= 25)) return { text: `List ${Math.abs(ld)}° to ${ld > 0 ? 'starboard' : 'port'}`, crit: Math.abs(ld) >= 30, k: 'list' }; // (water aboard, or past 25°: a patrol boat heeling out of a hard turn is no list)
     // a fire: where along her (aft, amidships, forward)
-    const at = new Set();
-    for (const p of v.parts) if (p.fire > 0) { const P = fireAt(p), f = (_ha(S, P.x, P.y) - G.a0) / Math.max(G.a1 - G.a0, 1); at.add(f < 1 / 3 ? 'aft' : f > 2 / 3 ? 'forward' : 'amidships'); }
-    if (at.size) {
-      const w = ['forward', 'amidships', 'aft'].filter((x) => at.has(x));
+    const fa = [];
+    for (const p of v.parts) if (p.fire > 0) { const P = fireAt(p); fa.push(_ha(S, P.x, P.y)); }
+    if (fa.length) {
+      const w = placesOf(G, fa);
       return { text: w.length === 1 ? `Fire ${w[0]}` : w.length === 2 ? `Fires ${w[0]} and ${w[1]}` : 'Fires all along her', crit: false, k: 'fire' };
     }
     return null;
