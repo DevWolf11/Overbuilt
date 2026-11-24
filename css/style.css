@@ -1472,6 +1472,14 @@ body.ship .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; padding-lef
 .sh-hl span { overflow: hidden; }
 .sh-hl .sh-warn { color: var(--amber); } /* (its own class: the page's .warn paragraph style would grow it to 12 px with a bar) */
 .sh-hl.lost { justify-content: center; color: #ff5d5d; font: 700 12px var(--display); letter-spacing: 0.1em; }
+/* (a desktop's line under the rudder: her CIWS by itself (green) or holding fire, damage control's priority (amber when set);
+   a phone's lit CIWS and DC buttons say the same, so it is a desktop's only) */
+.sh-kit { display: none; }
+body.pc .sh-kit { display: flex; gap: 10px; white-space: nowrap; font: 600 10px var(--mono); letter-spacing: 0.06em; color: var(--muted); }
+.sh-kit .on { color: #7dffb0; }
+.sh-kit .off { color: #ff8a7a; }
+.sh-kit .set { color: var(--amber); }
+.sh-kit span:empty { display: none; }
 @media (max-width: 760px) { .sh-cv { height: 20px; } }
 @media (max-height: 500px) { .sh-cv { height: 14px; } }
 /* her touch buttons (ship.js hud: btns): HOLD, DC (its priority under it) and CIWS, in a row over the telegraph lever;

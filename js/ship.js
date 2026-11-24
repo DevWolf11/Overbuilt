@@ -4508,10 +4508,12 @@ const Ship = (() => {
     box.innerHTML = '<div class="sh-tel"><span class="sh-rungs" aria-hidden="true">' + '<i></i>'.repeat(8) + '</span></div>'
       + '<div class="sh-line"><b class="sh-order" role="status">Stop</b><span class="sh-mode"></span></div>'
       + '<div class="sh-rud"><span class="sh-bar" aria-hidden="true"><i class="sh-fill"></i><i class="sh-cmd"></i></span><span class="sh-ang">0°</span></div>'
+      + '<div class="sh-kit" role="status"><span class="sh-ciws"></span><span class="sh-dc"></span></div>' // [WP12] (a desktop's: what the phone's CIWS and DC buttons show)
       + '<div class="sh-hull" hidden><canvas class="sh-cv" aria-label="Hull diagram: her compartments, their water, holes, fires and damage control"></canvas><div class="sh-hl"><span class="sh-heel"></span><span class="sh-trim"></span></div></div>'; // [WP12]
     tel.append(box);
     HUD.el = box; HUD.rungs = [...box.querySelectorAll('.sh-rungs i')]; HUD.order = box.querySelector('.sh-order'); HUD.mode = box.querySelector('.sh-mode');
     HUD.fill = box.querySelector('.sh-fill'); HUD.cmd = box.querySelector('.sh-cmd'); HUD.ang = box.querySelector('.sh-ang');
+    HUD.kitC = box.querySelector('.sh-ciws'); HUD.kitD = box.querySelector('.sh-dc');
     HUD.hull = box.querySelector('.sh-hull'); HUD.cv = box.querySelector('.sh-cv'); HUD.heel = box.querySelector('.sh-heel'); HUD.trim = box.querySelector('.sh-trim'); HUD.hl = box.querySelector('.sh-hl');
     if (typeof ResizeObserver === 'function') { HD.ro = new ResizeObserver(() => { HD.sz = null; }); HD.ro.observe(HUD.cv); } // (its size looked at again only when it changes)
     return box;
@@ -4539,7 +4541,7 @@ const Ship = (() => {
     for (const p of sh.rudders) if (Number.isFinite(p.rud) && !p.broken) { act += p.rud; n++; }
     const cmd = Number.isFinite(sh.rud) ? clamp(sh.rud, -R, R) : 0, now = n ? clamp(act / n, -R, R) : cmd;
     const hand = v.sas === 'manual', hold = !hand && Number.isFinite(sh.hold) ? String(Math.round(bearing(v, sh.hold)) % 360).padStart(3, '0') : '';
-    const key = `${tel}|${Math.round(cmd)}|${Math.round(now)}|${hand}|${hold}|${sh.rudders.length}`;
+    const key = `${tel}|${Math.round(cmd)}|${Math.round(now)}|${hand}|${hold}|${sh.rudders.length}|${v.ciws.length > 0}|${sh.ciwsOn !== false}|${sh.dcPri}`;
     if (key === HUD.key) return;
     HUD.key = key;
     HUD.rungs.forEach((r, i) => { const c = i === tel + 3 ? 'on' + (tel < 0 ? ' astern' : '') : i === 3 ? 'stop' : ''; if (r.className !== c) r.className = c; });
@@ -4553,13 +4555,19 @@ const Ship = (() => {
     HUD.cmd.style.left = `${pc(cmd).toFixed(1)}%`;
     const a = Math.round(now);
     HUD.ang.textContent = !sh.rudders.length ? 'no rudder' : a === 0 ? '0°' : `${Math.abs(a)}° ${a > 0 ? 'stbd' : 'port'}`;
+    // [WP12] (a desktop's line of what the phone's buttons light: her CIWS by itself or holding fire, damage control's priority)
+    const cw = v.ciws.length > 0, on = sh.ciwsOn !== false;
+    HUD.kitC.textContent = cw ? (on ? 'CIWS AUTO' : 'CIWS HOLD') : '';
+    HUD.kitC.className = 'sh-ciws' + (cw && on ? ' on' : cw ? ' off' : '');
+    HUD.kitD.textContent = `DC ${{ auto: 'ANY', flood: 'FLOOD', fire: 'FIRE' }[sh.dcPri] || 'ANY'}`;
+    HUD.kitD.className = 'sh-dc' + (sh.dcPri && sh.dcPri !== 'auto' ? ' set' : '');
   }
 
   // ---- the hull diagram [WP12]
   // Her side as the diagram draws it (hullGeo, once for her parts): along a (part space · sh.ax, m: the bow the larger)
   // and up u (· sh.ay): each hull part's outline (its rings' deck and keel points: [a, u, …], deck forward then keel aft),
   // each compartment's stretch [a0, a1] and its number from the bow, and her extent.
-  const HD = { key: '', at: -1e9, sz: null, ro: null, of: null, heel: 0, trim: 0, h0: NaN, t: -1, v: null };
+  const HD = { key: '', at: -1e9, sz: null, ro: null, of: null, heel: 0, trim: 0, h0: NaN, t: -1, v: null, nums: null }; // (nums: the compartment numbers the diagram shows)
   const _ha = (S, x, y) => x * S.ax.x + y * S.ax.y, _hu = (S, x, y) => x * S.ay.x + y * S.ay.y;
   function hullGeo(v, S) {
     const G = S._hg;
@@ -4859,7 +4867,8 @@ const Ship = (() => {
 
   // ---- the touch buttons [WP12]: HOLD (the heading hold or hand steering: Ships' hold key), DC (damage control's
   // priority: anything, flooding, fires: its key) and CIWS (her close-in guns by themselves or holding fire: its key, only
-  // with one aboard), in the ship layer (body.ship; never on a desktop: the key hints say them). Each does what its key
+  // with one aboard), in the ship layer (body.ship; never on a desktop: the key hints and the helm panel's CIWS and DC
+  // line say them). Each does what its key
   // does (Flight.shipKey's words); shown and lit from Flight.updateHUD's tick, written only on a change.
   const BT = { el: null, key: '' };
   function btnEls() {

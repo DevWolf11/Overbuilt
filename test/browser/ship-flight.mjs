@@ -216,6 +216,9 @@ for (const vp of [[390, 844, true], [360, 640, true]]) {
   const k5 = await press('Digit5'), k5b = await press('Digit5'), k6 = await press('Digit6'), k7 = await press('Digit7'), k7b = await press('Digit7');
   ok('5: hand steering (HAND) and back to the heading hold; 6 the CIWS off and on; 7 damage control: flooding first, fires first; 1-6 never a rocket\'s autopilot',
     k5.sas === 'manual' && k5.mode === 'HAND' && k5b.sas === 'hold' && /^HOLD/.test(k5b.mode) && k6.ciws === false && k7.dc === 'flood' && k7b.dc === 'fire', { k5: [k5.sas, k5.mode], k5b: [k5b.sas, k5b.mode], k6: k6.ciws, k7: k7.dc, k7b: k7b.dc });
+  // [WP12 fix] a desktop's helm panel says what the phone's lit buttons show, once the toasts have gone (the Cyclon: no CIWS)
+  const kit = await page.evaluate(() => { const e = document.querySelector('#ship-helm .sh-kit'); return { txt: [...e.children].map((c) => c.textContent).filter(Boolean).join(' · '), shown: e.getBoundingClientRect().height > 0, dc: e.querySelector('.sh-dc').className }; });
+  ok(`[WP12] a desktop's helm panel says damage control's priority ("${kit.txt}": fires first, lit) and no CIWS on a ship without one`, kit.shown && kit.txt === 'DC FIRE' && /\bset\b/.test(kit.dc), kit);
   for (const k of ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit6', 'Digit7']) await page.keyboard.press(k);
   await frames(page, 2);
   const sas = await page.evaluate(() => Flight.active.sas);
@@ -499,6 +502,15 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
     const a = await tap('#btn-shold'), d1 = await tap('#btn-sdc'), c = await tap('#btn-sciws');
     ok(`${tag}touch: HOLD to hand steering (${a.btn[0]}), DC to flooding first (${d1.btn[1]}), CIWS to holding fire (${c.btn[2]})`, a.sas === 'manual' && a.btn[0] === 'HAND:false' && d1.dc === 'flood' && d1.btn[1] === 'DCFLOOD:true' && c.ciws === false && c.btn[2] === 'CIWS:false', { a: a.btn, d1: d1.btn, c: c.btn });
     await tap('#btn-shold'); await tap('#btn-sdc'); await tap('#btn-sdc'); await tap('#btn-sciws');
+  } else { // [WP12 fix] a desktop: 6 and 7 said on the helm panel (CIWS HOLD, DC FLOOD), back again with 6, 7, 7
+    const kit = async (k) => { if (k) { await page.keyboard.press(k); await frames(page, 2); } return page.evaluate(() => { const e = document.querySelector('#ship-helm .sh-kit'); Controls.keyHints(Flight);
+      const kh = [...document.querySelectorAll('#key-hints-list > div')].map((d) => d.textContent).find((t) => /CIWS/.test(t)) || '';
+      return { txt: [...e.children].map((c) => c.textContent).filter(Boolean).join(' · '), h: e.getBoundingClientRect().height, ciws: Flight.active.sh.ciwsOn, dc: Flight.active.sh.dcPri, kh }; }); };
+    const k0 = await kit(null), k6 = await kit('Digit6'), k7 = await kit('Digit7');
+    await kit('Digit6'); await kit('Digit7'); const k9 = await kit('Digit7');
+    ok(`${tag}a desktop's helm panel says what the phone's CIWS and DC buttons show: "${k0.txt}", 6: "${k6.txt}", 7: "${k7.txt}", back: "${k9.txt}"; the key hint says what 6 does ("${k0.kh}", "${k6.kh}")`,
+      k0.h > 0 && k0.txt === 'CIWS AUTO · DC ANY' && k6.txt === 'CIWS HOLD · DC ANY' && !k6.ciws && k7.txt === 'CIWS HOLD · DC FLOOD' && k9.txt === 'CIWS AUTO · DC ANY' && k9.ciws && k9.dc === 'auto'
+      && /CIWS hold fire$/.test(k0.kh) && /CIWS auto$/.test(k6.kh) && /CIWS hold fire$/.test(k9.kh), { k0, k6, k7, k9 });
   }
   // flooding: holes in two compartments, the water in; an engine on fire
   const k0 = (await hudOf(page)).key;
