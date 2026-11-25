@@ -560,7 +560,9 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
     dk.k >= 2 && dk.core >= 2 && dk.deck.length >= 1 && (!ds || ds.length >= 1), { dk, ds });
   await page.evaluate(async () => { Flight.aimYaw = 0; Flight.aimPitch = 0; for (const p of Flight.active.sh.hulls) if (p.holes) for (const h of p.holes) { h.a = 1e-6; h.fix = 1; } await window.__simWait(2.6); }); // (a patched hole still leaks a tenth: these made pinholes her pumps keep up with)
   const f2 = await hudOf(page);
-  ok(`${tag}the holes stopped and the water still: the fire's line ("${f2.alert}")`, /^Fires? (aft|forward|amidships)/.test(f2.alert), f2);
+  // (the engine's fire spreads by the ship's dice over a frame time that varies: now and then to a part by a magazine,
+  // whose heating line is the fire's most pressing one)
+  ok(`${tag}the holes stopped and the water still: the fire's line ("${f2.alert}")`, /^(Fires? (aft|forward|amidships)|Magazine fire! · \d+ s)$/.test(f2.alert), f2);
   // a hostile torpedo 1.2 km off her starboard beam, running at her; then one of hers
   await page.evaluate(() => {
     const v = Flight.active, side = v.axis(0, 0, 1), P = { x: v.x + side.x * 1200, y: v.y + side.y * 1200, z: v.z + side.z * 1200 }, k = (EARTH.radius - 6) / Math.hypot(P.x, P.y, P.z); P.x *= k; P.y *= k; P.z *= k;
