@@ -243,12 +243,465 @@ Done when: it reads clearly on a 360×640 phone in portrait and a desktop, and o
 
 Read docs/ships/BRIEF-common.md first and follow it. Your package: **WP14 Combat matrix** of the ships update (spec docs/ships/SPEC.md: §20 whole (the owner's rule: every kind can destroy every kind, with realism in how hard), §20.1's decisions (O1, O3, O5 for old kinds; S1-S10 for ships, already built by WP8/WP9/WP10), §8.12's table and "the other way", §16's WP14 row). The recovered audit summary is in docs/ships/reports-recovered.md (search "matrix").
 
-Everything else is merged: ships, damage, weapons, the computer's ships, multiplayer, HUD, the sea. The earlier packages measured §8.12's rows and left the balance to you: WP8 (today's weapons vs the four ships: small arms and the ram weaker than the bands, HE a little slower), WP9 (naval 127 mm vs Cyclon 9 (band 3-6), Vizby 29 (8-15), Arley about 288 (15-40); torpedo vs Arley 5 (1-2); ASM vs Arley 5 (3-5) with her CIWS held). Read ships-damage.test's and ships-combat.test's band harnesses: reuse them.
+Everything else is merged: ships, damage, weapons, the computer's ships, multiplayer, HUD, the sea. The earlier packages measured §8.12's rows and left the balance to you: WP8 (today's weapons vs the four ships: small arms and the ram weaker than the bands, HE a little slower), WP9 (naval 127 mm vs Cyclon 9 (band 3-6), Vizby 29 (8-15), Arley about 288 (15-40); torpedo vs Arley 5 (1-2); ASM vs Arley 5 (3-5) with her CIWS held). Measured again on the branch after WP10-WP12 (the numbers to start from): 127 mm vs Cyclon 9 (band 3-6), Vizby 29 (8-15), the Arley still afloat after 80 (15-40); torpedo vs Vizby 2 (1), Arley 4 (1-2); ASM vs Arley 5 (3-5). Read ships-damage.test's and ships-combat.test's band harnesses: reuse them.
 
 You own: `test/matrix.test.js` (three layers: reach (the targeting lists and one delivered round for every attacker-target pair among the seven kinds: rocket, plane, car, helicopter, drone, Armour, ship), effort (seeded hits or time to destroy, rating bands "sure / takes work / almost harmless", lower bounds for the almost-harmless cells, `test/baseline/matrix.json`), hard cases (scripted engagements: a drone's head-on pass at a plane, a tank against a hovering helicopter, a ship's guns at a tank on the shore, …)); the old-kind fixes O1 (drone.js `lockable`: landed craft, rockets on the pad, slow low helicopters; drones still refused), O3 (a rocket warhead part, `def.warhead`, so a rocket can be flown as a missile; old crashes stay harmless), O5 (combat.js's `Death.hit` gate for rockets); balancing the ships' §8.12 rows where they are far off, by tuning SHIP's damage and weapon numbers (not WP8's physics), each change justified by realism and measured; the 7×7 table (markdown) for the handbook and the PR body.
+
+
+Also yours, found after the brief was written (each pre-existing on the branch; fix at the source, never by loosening a check):
+- **An anti-ship missile flies over a low-freeboard ship (major).** ship-flight.mjs's "the Arley's anti-ship missile at a Cyclon 5514 m out ... goes and hits her" fails about 4 runs in 10. Node repro: `node /tmp/claude-0/-home-user-Overbuilt/0587f056-6c41-58cd-9f76-3deee688a95a/scratchpad/asmcyc/run.js <checkout> 24` (an Arley's `asm4` at a Cyclon 5.5 km off, calm sea, `Ship.seed(1000 + 37k)` for 24 k; if the scratchpad is gone, rebuild it from ships-combat.test's stand-ins): 10 of 24 miss, every one with |`s.ao`| ≥ 0.22 (asmStep's aim point along her length, `(crnd() * 2 - 1) * 0.35` of her bounds). The missile passes 6-13 m from her origin and flies on until 40 s. Cause: `SHIP.ASM.termH` is 3 m and a Cyclon's deck fore and aft of her wheelhouse and turret is lower, so a missile aimed there skims over her; it hits only when the aim point lands on the wheelhouse or the 30 mm turret. Expected: a missile locked on a ship hits her wherever along her length it aims (into the side below the deck edge at that point, or a terminal dive that meets the deck), for all nine stock ships including the Zodiak and the Pegazus on her foils. Pin it in the matrix: ASM vs each stock ship, hit rate over seeds ≥ 0.95 with no chaff or CIWS.
+- **The close-in gun's kill rate in the page (major, flaky check).** ship-flight.mjs's "an Osca's anti-ship missiles at her from 6 km: her close-in gun ... shoots one down" fails about 1 run in 4: the page's kill chance per missile is about 0.5 against ships-combat.test's 0.7 in node, and after two hits the third missile is never engaged. The combat dice `cs` (ship.js, `Ship.seed`) are seeded from `Math.random` per page load; ciwsStep (ship.js ~4028-4100) fires 5 rounds per simulated shot, 1500 rounds. Find out whether the kill rate depends on the frame rate (the page steps Ship.ciwsStep at the frame's dt, node at 2/120 s): if it does, make it frame-rate independent; then make the browser check deterministic (seed the dice) with the node odds.
+- **A decoy dies before the torpedo it lured (minor).** WP9's torpedo decoy lives 60 s, shorter than a lured torpedo's run, so a torpedo can turn back to the ship once the decoy is gone. Check the real towed decoy (it is towed until recovered) and the torpedo's re-acquisition; make the lure hold for the torpedo's whole run if that is the realistic answer.
 
 Gates: every old baseline identical (keydiff), the old 36 pairs give identical numbers with and without ship.js loaded, O1/O3/O5 gated so nothing old moves (only a player's drone Lock reaches O1; O3 only with the new part).
 
 Tests: matrix.test (about 50 s; register it in run.mjs), every pair has a way, the bands hold; the stock ships' rows within §8.12's bands or the measured numbers recorded with the reason.
 
 Done when: every pair has a way, the table's bands hold, and the table is written. Commit in increments (the container can be replaced) and report as soon as the done-criteria hold.
+
+## Ships WP16: rules and paths for every WP16 package
+
+Paths used below. The design: `docs/ships/WP16.md` (its §11 lists the sceptic's critique and how each item was settled, so don't re-open those without new
+evidence). The research: `.../scratchpad/wp16/look.md` (today's models looked at and measured), `.../wp16/code.md` (the
+pipeline to the line, what may change), `.../wp16/real.md` (the real vessels and kit, colours, game techniques); the
+critique `.../wp16/critique.md` and its probes `.../wp16/sceptic/` (camera distances: `probe3.js`; hull cut counts:
+`probe4b.js`, `probe4d.js`) and `.../wp16/wp16probe/probe5-single.js` (the near loft's single-line cuts); the "before"
+screenshots `.../wp16/look/shots/` and the scripts that took them `.../wp16/look/look.mjs`, `parts2.mjs`;
+`.../wp16/count.js` (builds every ship part's model in node with the tree's three). `.../` is
+`/tmp/claude-0/-home-user-Overbuilt/0587f056-6c41-58cd-9f76-3deee688a95a/scratchpad` (if the container was replaced
+and it is gone, the four notes are in `docs/ships/wp16/`; the screenshots and probe scripts are not, so take the "before"
+pictures again with `ship-models.mjs --shots` on a commit before WP16).
+
+Order: **WP16a's first step (a1, the contract) is merged before anything else starts**; then a2 (the pipeline), WP16b,
+WP16c and WP16d run in parallel worktrees off the branch tip with a1 in it; the lead merges a2 → b → c → d; then **a3**
+(the merge on the final models); then WP16e.
+
+Rules every package keeps (the design's §3.1a, §6.2, §7): pieces are `[geo, kind, cls, flags]` with `cls` ∈ `midOnly`
+(only with its `near` twin over the same planes), `mid`, `near`, `fine`; kinds `shipVC`, `shipCamo`, `glass` only; no
+`DoubleSide`, `flatShading`, `alphaTest`, `InstancedMesh`, textures or custom shaders on ship parts; nothing proud or
+recessed by under 3 cm; fine rods ≥ 4 cm (stanchions 6 cm); strong-contrast cut-in strips ≥ 0.8 m in mid, ≥ 0.3 m in
+near, weak ones ≥ 0.3 m, seams as tone steps; `tall` rods (≤ 6 cm, ≤ 6 m, `noPick`) are the only pieces allowed outside
+a box; buildings keep their roof at the box top and each side and top face ≥ 85 % covered by mid surface within 0.5 m;
+nothing sits lower than the box top where another part may stand; every recipe gated on `d.ship` (old parts
+byte-identical); a recipe reads only the ctx fields its style adds to `CTX_USE` (with `Object.assign` in its own region);
+deterministic (no `Math.random`); your per-part caps in your block of `ship-models.test.js` sum to the design's §6.3
+allocation.
+
+## Ships WP16a: the ship model contract, the drawing pipeline and its integration
+
+Read docs/ships/BRIEF-common.md first and follow it, and this file's section "Ships WP16: rules and paths for every WP16 package" (paths, order, the rules every package keeps). Your package: **WP16a the ship model contract, the drawing pipeline
+and its integration** of the ships update's detailed models (the design docs/ships/WP16.md: §0, §2, §3.1a, §3.4, §4.4's
+number and name, §5, §6 whole, §7, §8, §9, §10, §11 — read it all once; spec docs/ships/SPEC.md: §12.6 models, §15
+performance budget, §16 the ownership rule; handbook docs/HANDBOOK.md's render chapter on the log depth buffer,
+`depthBias`, `F.camAbs`, the wreck bake, background jobs and drawing on demand; CLAUDE.md's Gotchas on three's chunks,
+programs, shadow-only casters, background jobs, battery and the zoomed HUD). Research: `.../wp16/code.md` §1, §4-§8 (the
+pipeline to the line, costs, extension points), `.../wp16/look.md`'s Measurements, `.../wp16/critique.md` items 2, 3, 7-11,
+19, 21-23. The owner asked for the whole of WP16 in their words: "the ship models or part models, they are really not
+detailed at all, and on ships it should matter, they should be as realistic and as detailed models as there can be, more
+than our standard, so please full focus on that once everything else is finished". Your part is what lets the other three
+packages pile detail on without a phone paying for it: today the Arley Berk is 15 k triangles in 72 meshes, each drawn
+twice on High, 54 materials, no LOD (at 600 m she still costs 176 draws).
+
+You work in three steps.
+
+**a1, the contract** (commit it, report, and stop for the lead to merge it before WP16b, c and d start: they code against
+it). parts3d.js: `KINDS` gains `shipVC` (vertex colours, the `shipHull` kind's parameters, so its program) and `shipCamo`
+(vertex colours × the camouflage map in metres, `shipHullCamo`'s program); `node()` takes an optional third and fourth
+element per piece, the class and flags (absent: exactly today's output); `model(d, flip, skin, ctx)` merges a ship part's
+pieces per kind into **one indexed geometry ordered `[midOnly | mid | near | fine]`** with `userData.runs` (and a hull's
+label-region tail, `runs.tail`), keys it per skin (its paint is in its vertices) and per the ctx fields its style lists in
+`CTX_USE`, and nothing else's key changes; `instance()` sets a ship mesh's `drawRange` for the hangar (`[mid | near |
+fine]`), gives it `onBeforeShadow`/`onAfterShadow` that swap in `[midOnly | mid]` (the pattern of render3d's city
+stand-ins, :3866; a mesh with no mid run never casts); `fade()` casts only meshes with a mid run (today it resets every
+mesh by `rig.small`, parts3d.js:2660), X-ray draws ship meshes' `[mid]` and hides glass and `tall` pieces, `bakeList`
+ignores `userData.tierHidden` (never other hiding) — each a branch reached only by ship pieces; `buildPart(p, builder,
+radial, ctx)`; a region `// ==== ships: models' contract (WP16a) ====` with `SC` (the design's §3.4, linear), `SG()` (an
+indexed, vertex-coloured builder with regions: `box`, `prism` with split normals for facets, `cyl`, `lathe`, `rod`, `quad`,
+`add`; vertices shared only within a region), `cutColour(geo, polys, rgb, proj)` (Sutherland-Hodgman cuts of a piece's
+own triangles along convex polygons in a per-face projection: `'side+'`, `'side-'`, `'plan'`, `'end'`), `wear(rgb, x, y, z,
+k)`, the far default (`far(d, skin, ctx)` from a layout, no model build: the box in the skin's paint, its top band in the
+layout's top colour when given), `const CTX_USE = {}`, and the fitting library `FIT` (`railRun`, `hatch`, `door`,
+`porthole`, `windowBand`, `ladder`, `vent`, `navLight`, `whip`, `searchlight`, `raft`, `bitts`, `chock`, `cleat`: classed
+pieces, deterministic, in the caller's frame, at §3.1-§3.2's sizes and §3.1a's thicknesses); the headers of b's and c's
+regions with the stubs `shipDress(vm, parts)` and `superDress(vm, parts)` (so b and c never edit your region); parts.js a
+region `// ==== ships: model context [WP16a] ====` with `shipCtx(parts, salt)` (`stealth`, `aegis`, `no` (calls WP16b's
+`shipNumber` when it exists, else null), `name`), `shipPartCtx(p, parts, vctx)` (`nb`, `bay`, `egg` as §5 defines them)
+and the `PartPaint.ship` field; builder.js's 2D part loop (~:3736) and world.js's 2D vessel draw (:966) set and clear
+`PartPaint.ship` for a design with a ship part (two lines each, marked `// [WP16a]`); `VesselMesh` computes the vessel's
+and each part's ctx once (a WeakMap per part object: a split's halves inherit it) and calls the dress hooks on a layout
+signature as `pylons()` does; `test/ship-models.test.js` (node, with the tree's vendored three as `.../wp16/count.js` does
+it; register it in run.mjs): a snapshot of every sim-read number against 727e2d2 (`nvAsmLay(d).mouth` for every k,
+`nvVlsLay(d).cells`, `nvCiwsLay(d).gun`, `def.screw.y` against `shOutboardLay`'s hub, `def.foil.y`/`chord` against
+`shFoilLay`, `shullTris` of every hull hashed), every non-inner ship part's model inside its box (`tall` pieces exempt and
+listed; the Gun House inside its outline prism, the ring inside its lathe outline), the buildings' face coverage (a 0.25 m
+raster: each side and top face ≥ 85 % covered by mid surface within 0.5 m, roofs at the box top, recesses ≤ 2.4 m) for
+every ctx variant, every role of §3.3's limits present at its pivot, every piece classed and of an allowed kind, runs
+ordered and every `midOnly` with a `near` twin over the same planes, no coplanar overlapping triangles in a drawn set
+(planes within 1 mm, normals within 1°, overlap > 1 cm²), no relief under 3 cm, two builds hash-identical, and the
+per-part caps table (blocks `[WP16b]`, `[WP16c]`, `[WP16d]`, filled with today's counts for now: each package raises its
+rows to the design's §6.3 allocation); `test/browser/ship-models.mjs` (register it) with a `--shots <dir>` mode writing
+the design's §9 shot list (port `.../wp16/look/look.mjs` and `parts2.mjs`: same camera placements, plus `sea-<k>-30`,
+`-200`, `-1500`, phones at DPR 1.75, every shot's tiers in a sidecar line) so every package takes the same pictures. a1
+changes no picture: every model still builds as today (your helpers are unused until b, c, d use them), graphics.mjs and
+ground-models.mjs identical.
+
+**a2, the pipeline** (beside WP16b, c and d; they are rewriting the part recipes: never touch `shipHullGeo`,
+`BUILD.shipHull`, `shipKit`, `shipKit2`, `navalKit`, the `d.ship` branches of `tankGun`/`radarAnt`/`extrude`/`lathe`, b's
+or c's regions, or any parts.js art). The **ship layer** of the design's §6.2 for vessels of kind `ship` in flight only
+(`VesselMesh(parts, { ship: true, name, salt })` from `syncVessels`; every other kind draws rigs exactly as today): static
+pieces of ship parts, `rig.dress` and `superDress` merged per material into a `body` (the runs concatenated by class, the
+label-region tails last), `camo` (one per camouflage skin, each part's camouflage offset baked into its UVs), `glass`, ≤ 40
+m `fine` chunks, the launchers' `nvCap<k>` lids into one mesh per launcher drawn by `drawRange` from `p.ammo`, ≤ 2 label
+patches, and the `far` mesh (hulls decimated from their rings, every part's `far` from its def, old parts as boxes), all
+children of `vm.group` in its frame; compact attributes (`Uint8` colours, `Int8` normals, `Uint16` indices where they fit),
+CPU arrays released after upload, indices kept; built lazily in jobs of ≤ 3 ms a frame across all ships, at most one
+layer's first upload (≤ 1.5 MB) a frame, `far` at first sight, `body` (midOnly and mid) and lids at first T2, near runs,
+glass, labels and dressing at first T1, fine at T0; near/fine/glass/labels freed after 30 s at T2 or lower; until a layer
+exists its parts' own meshes draw (the same picture); merged meshes' rigs skip `update()`; a lost part's runs collapsed by
+indices, not rebuilt; `pick` keeps hidden-because-merged meshes pickable and skips `noPick`; `char` reaches the layers'
+materials once; the bake folds only the rigs (≤ 15 ms for an Arley), walking them whatever the tier, and keeps the
+layers; ship rigs cast only when their bounding radius is ≥ 1 m (T1, T0) or ≥ 2 m (T2); `dispose` frees it all. The
+**tiers** of §6.1: render3d `syncVessels` computes `k` (CSS px per metre at her nearest point, the current `TANH`), `kd` (k
+× the renderer's pixel ratio) and her camera in the vessel group's frame onto `SYNC_Q`; `VesselMesh.sync` sets the
+`drawRange`s and visibilities with the hysteresis given, Low's thresholds when `Settings.high` is off, T0 by `kd` per fine
+chunk, under-water rigs hidden below T1 (launchers' lids stay to T2), rigs hidden at T3, label patches by their own stroke.
+**Builds**: at the flight's load (`S.warm`) the models of the player's ship and of every template ship.js can bring into
+this flight (read its Range and Practice rosters, never write ship.js) are built; a ship whose models aren't cached draws
+a far-only stub (`vm.farOnly`) while its part models build as jobs (a part per slice; the hull's near cut sliced with
+`jobLate()`), and you check every reader of `vessels.get(v).vm` (grep) copes with the stub. The hangar's call
+(render3d.js:7601) passes `{ ship: true, name: Builder.name }` for a ship and a rename rebuilds the label patches (the name
+joins `bd.key`). mp.js one line marked `// [WP16a]`: the spawn message's `name`, sanitised (`[A-Z0-9 -]`, ≤ 14
+characters), stored on `P.design` and passed to the ghost's `VesselMesh` (today `vesselOf` names a ghost after its player,
+mp.js:1477). `Render3D.info().ships`: per vessel her tier, draws, shadow draws, triangles, layers built and bytes.
+Render-bench: build `ship1k` (SPEC §15's: the Arley at 25 kn, Moderate, the camera 1 km off her beam, noon), `shipbig` (the
+Arley's chase at 1.5 L, Moderate, noon), `phonechase` (her phone-portrait follow camera, 390 × 844, DPR 1.75) and
+`hangarship` (the Arley orbiting in the hangar, phone High) beside `shipnear` and `fleet`, and a `SHIPS` group whose checks
+are the §6.5 rows, each row logging every ship's tier; `fleet`'s `base0` measured with every ship hidden in the same run.
+
+Gates: nothing old changes: every edit is a no-op without `d.ship`, `opts.ship` or a ship piece (graphics.mjs every
+check, ground-models.mjs (the tanks' draw budgets and bake) unchanged, render-bench `--same` identical on every non-ship
+scene and the hangar); no new shader program anywhere (count them: in `fleet` and `shipnear` B ≤ A, nothing compiled at
+the first ship seen), no `InstancedMesh`, `flatShading`, `alphaTest`, `DoubleSide`, new texture for ship parts or custom
+shader; drawing on demand (`App.stale`) unaffected; the merge never writes the sim (decals, sinking veils and wakes read
+the sim as before; water.mjs's `vm.group.visible` toggles still hide the whole ship); no model build, dressing, label or
+merge runs synchronously at a ship's first sight in flight.
+
+Tests: `ship-models.test.js` green; `ship-models.mjs`: for each stock ship on a phone (390 × 844, DPR 1.75) and a desktop
+(1280 × 720), High and Low, her draws, shadow draws, triangles and bytes at each tier (camera placed for each tier),
+reported against §6.3; the merge pixel-equal (one paused frame with the sea's clock held, rendered twice with the merge on
+and off: ≤ 0.01 % of pixels differ by more than 2/255); the hysteresis (a camera creeping across each threshold and back
+switches once each way); a part shot off (her runs gone, nothing else moves); a wreck baked at T3 and at T1 (one rig mesh,
+the layers kept, guns and radars present in both); a tap on a merged part picks it; an old jet and an old tank built
+before and after a ship give hash-identical geometry; a far-only stub replaced by the full ship within 2 s on the 4×
+profile with no frame over base + 16 ms; the build time from cold at load and the hangar rebuild (§6.5); memory per ship;
+graphics.mjs, ground-models.mjs, water.mjs, ship-flight.mjs, deaths.mjs, redraw.mjs unchanged; render-bench before (the
+branch tip without a2) and after, alternating, several runs, the spread reported.
+
+Screenshots: `ship-models.mjs --shots` before and after a2 on the same models (they must match), and the tiers coloured
+(a debug tint by tier) on a fleet at 30 m, 300 m, 1 km and 3 km, looked at for pops; `.../wp16/look/shots/fleet` frames
+from the bench for comparison.
+
+Done when (a2): a1 merged and green; a2's structural checks green (pixel-equal merge, tiers, hysteresis, picking, bake,
+part loss, stub, zero new programs, old scenes identical) and the §6.3 table **reported** as measured on today's models
+(today's Arley is about 30 draws even merged: 19 material groups, 7 of them per-type textures that can't share a
+material, plus ~17 rig meshes; the counts are met in a3).
+
+**a3, integration** (after the lead has merged b, c and d): re-run every a2 check on the final models and make them hold:
+the classes and runs from b, c and d's recipes in the merge, `rig.dress` and `superDress`, glass in near, the caps, the
+camouflage offsets on a camouflaged ship (paint a test Arley in each camouflage skin: the pattern continuous across parts
+when merged and identical to the rigs' picture), the label patches (number and name, a peer's name from its spawn), the
+far meshes from each package's layouts. Where a package's code breaks the merge, fix it in place and list each fix in your
+report (its owner is done by then). Done when every stock ship meets its §6.3 draws, shadow draws and triangles at every
+tier on both profiles and the §6.5 rows hold, measured with the a2 harness, every a2 check green, old scenes identical.
+Commit in increments (the container can be replaced) and report as soon as each step's done-criteria hold.
+
+## Ships WP16b: hulls and their dressing
+
+Read docs/ships/BRIEF-common.md first and follow it, and this file's section "Ships WP16: rules and paths for every WP16 package" (paths, order, the rules every package keeps). Your package: **WP16b hulls and their dressing** of the ships
+update's detailed models (the design docs/ships/WP16.md: §0, §1, §3.1 (the rows owned by b), §3.1a, §3.2's RIB and
+landing-craft fittings, §3.3's hull table, §3.4, §4 whole, §5, §6.3's b allocation, §7, §8's interfaces, §9, §11 items 2,
+6, 8, 14-17; spec docs/ships/SPEC.md: §3 hull geometry, §6.1 the hulls, §8.3 "what is hit is what is drawn", §8.4 hole
+decals, §12.6). Research: `.../wp16/real.md` §1 (colours, weathering), §2 (each ship: what reads at 1.5 km, 200 m, 30 m),
+§3's hull rows; `.../wp16/look.md`'s worst ten #2, #3, #5, #9 and its hull notes; `.../wp16/code.md` §4 "Hulls";
+`.../wp16/wp16probe/probe5-single.js` (single-line cut counts). The owner: "the ship models or part models, they are
+really not detailed at all, and on ships it should matter, they should be as realistic and as detailed models as there
+can be, more than our standard, so please full focus on that once everything else is finished". Today every hull is a
+smooth loft with flat bands: no seam, fitting or marking; flat topsides; a light dotted seam at every joint; a blank
+transom that fills 40 % of a phone screen in an armed ship's default view.
+
+WP16a's contract (a1) is merged: `SG`, `cutColour`, `wear`, `SC`, the `FIT` library, classes and runs, `shipCtx`,
+`shipPartCtx` and `PartPaint.ship`, `CTX_USE` (add your rows with `Object.assign` in your region), the `shipDress` stub in
+your region's header (you fill it in). Beside you: WP16a's pipeline (the merge and tiers: `VesselMesh` internals,
+render3d), WP16c (superstructure, drive, kit), WP16d (weapons): keep out of their functions; your pieces join the merge
+through their classes and `rig.dress`.
+
+You own: parts3d.js `shipHullGeo`, `BUILD.shipHull`, the region `// ==== ships: hull dressing (WP16b) ====` (`shipDress`,
+appendages, the label patches' cut (`labelPatch(d, side, text, style)`, called by a2's layer code), the far hull from
+decimated rings), the `shull` rows of `CTX_USE`; parts.js the hull art region (`shullDraw`, `shTubeLay`, `shRampLay`,
+`shStripe`'s art, new `shHullDress`, `shNumLay`, `shipNumber`, `SH_FONT`); test/browser/builder-shapes.mjs a new section
+3f; the `[WP16b]` block of `ship-models.test.js`'s caps. You must not touch: `shullOf`, `shullTris`, `shullPts`,
+`shullSec`, `shullPoly`, `def.shull` or any hull field, `clashShape`, ship.js (hits, buoyancy, `holeMarks`), render3d's
+decals; WP16a's merge and tiers.
+
+What to build (the design's §4): **two lofts per hull part** over `shullTris`' triangles, never drawn together:
+`midOnly`, today's band loft with bent normals on flared topsides and joint caps coloured and normalled like the side
+behind them (the joint seams gone); and `near`, the cut loft: **no uniform grid**, cut per face (sides by sign of z, the
+deck in plan, the transom in end view) by single-line tone steps at strake edges and frames, the knuckle line, the
+boot-top's edges and its ragged top, streak strips ≥ 0.3 m, rust fans, salt, the deck's non-skid fields and margin, the
+stealth style's panel grid; coloured per region (plates their own tone ±3 %), the label regions' triangles last in the
+index; `shipHullGeo` still calls `shullTris(d)` first (ships-damage #1's regex). `shHullDress(d)`: the per-segment
+fitting list from the hull's own rings, ends, class and scale, so every player-built hull gets it. `shipDress(vm,
+parts)`: in the vessel frame, culled by every other part's box, rails (stanchions 6 cm, lifelines 4 cm) split where parts
+stand, joined across joints, nets along a helideck, the bulwark at the bow, the stealth style (no rails, exposed bitts or
+anchors; flush covers as dark regions), shafts and A-brackets to each screw, hung as `rig.dress` on the owning part;
+built as a job in flight (a2 calls it), on every rebuild in the hangar. The RIB's collar where today's tube is
+(`shTubeLay`: tangent inside the deck edge, inside the box) with rounded and coned ends, seams and loops, her seats and an
+arch of `tall` tubes; the landing craft's well walls, ramp hinge and winch; the pontoon's hatch and water rudder; the
+flying-boat hull's strakes and step lip as tone steps. `shipNumber(parts, salt)` (a hash of the sorted part types and the
+salt: every screen agrees) and the transom name (sanitised: `[A-Z0-9 -]`, two words, ≤ 14 characters; a peer's name is
+untrusted text, geometry only); `SH_FONT` (digits and capitals as convex quads) shared with 2D; label patches: the label
+region's triangles cut by the glyphs and coloured (port glyphs reading left to right from outside), strokes ≥ 0.3 m for
+numbers, 0.15 m for an X name. No draft marks in 3D (2D keeps today's). `shullDraw` drawing the side-visible dressing, the
+number and the name from the same functions, culled by `PartPaint.ship.parts` when given; the far hull (every third ring,
+bands only). Caps: midOnly ≤ 1.4 k a segment; near loft X ≤ 4.5 k (bow) / 3.5 k, L ≤ 3.8 / 3.0 k, M ≤ 2.2 / 1.8 k, S ≤
+1.0 k, one-piece ≤ 1.5 k; a label patch ≤ 0.8 k; dressing on the Arley near ≤ 12 k, fine ≤ 18 k, built ≤ 15 ms desktop;
+an X bow's near loft built ≤ 12 ms desktop.
+
+Gates: what is hit is what is drawn: every drawn hull vertex (both lofts and the patches) on a `shullTris` triangle within
+1 mm (add the check to the `[WP16b]` block), holes' decals still visible on bare plating (fittings may hide them where a
+real fitting would); builder-shapes 3c unchanged and green; new **3f**: on every stock ship and on a cluttered test design
+per hull class (every deck place filled), every dressing vertex within its hull's side outline in x-y plus ≤ 1.3 m above
+the deck line, |z| ≤ depth/2 + 1.5 cm, transom items ≤ 0.4 m aft of the transom, none inside another part's box, none
+within 1 m of the bridge eye (`Ship.eyeOut`'s point), `tall` rods exempt and listed; no coplanar overlay (the swap pair's
+twins never drawn together); determinism (dressing hash-identical twice); old craft untouched (graphics.mjs,
+ground-models.mjs; an amphibious tank with a hull part draws its tank parts as before).
+
+Tests: ships-damage.test (all, #1 included), ships.test, catalogue.test, `ship-models.test.js` (your block's caps, runs,
+coplanarity, relief), builder-shapes.mjs (3c, 3e, your 3f), builder2d.mjs and builder-ship.mjs (the 2D blueprint with
+rails, numbers and names: nothing clipped or misplaced), ship-flight.mjs and water.mjs (hulls at sea, sinking, hole
+decals) unchanged in what they check; the full node run and keydiff (nothing moves: you change no data).
+
+Screenshots (`ship-models.mjs --shots`, with WP16a's harness): `part-hb*`, `part-ribHull`, `part-lcHull`, `part-pontoon`,
+`part-stepHull` and `sheet-shHull`; every ship's `sea-<k>-30`, `-200`, `-1500`, `-weapons`, `-aft`, `-game`, `phone-<k>-game`
+and `phone-<k>-chase` (DPR 1.75); the 2D blueprint of every ship; side by side with `.../wp16/look/shots/`
+(`sea-arley-weapons`, `sea-cyclon-weapons`, `hangar-cyclon-stern`, `phone-arley-game`, `sea-zodiak-bridge`,
+`sea-higgens-chase`). LOOK at them as the owner would on a phone: the bow must flare, the joints must vanish, the transom
+must no longer be a blank wall, the number must read in the default views, nothing must crawl as she rolls (watch a few
+seconds of `phone-arley-chase` frames), rails must not shimmer at T0.
+
+Done when: the 16 hulls are grade 3 at 30 m (the design's §1 rubric), every stock ship carries her dressing per the
+design's §9 checklist rows that are hull items, 3f is green, ships-damage #1 and every hit test hold, your caps met,
+nothing old moved. Commit in increments (the container can be replaced) and report as soon as the done-criteria hold.
+
+## Ships WP16c: superstructure, masts, propulsion and kit
+
+Read docs/ships/BRIEF-common.md first and follow it, and this file's section "Ships WP16: rules and paths for every WP16 package" (paths, order, the rules every package keeps). Your package: **WP16c superstructure, masts, propulsion and kit** of
+the ships update's detailed models: 28 parts (`shSuper` 10, `shDrive` 12, `shKit` 6) (the design docs/ships/WP16.md: §0,
+§1, §3.1's rows owned by c (portholes, windows, doors, roof hatches, superstructure rails, wall weathering), §3.1a, §3.2
+(the cosmetic fittings), §3.3's superstructure, propulsion and kit tables, §3.4, §5 (`aegis`, `stealth`, `nb`, `bay`),
+§6.3's c allocation, §7 (coverage, parts resting on what is drawn), §8's interfaces, §9, §11 items 1, 3, 4, 5, 12, 18,
+20; spec docs/ships/SPEC.md: §6.2, §6.3, §6.5, §12.6). Research: `.../wp16/real.md` §2 and §3's superstructure,
+propulsion and kit rows (what each real item's defining shapes are); `.../wp16/look.md`'s worst ten #6, #8, #10 and its
+per-part notes; `.../wp16/code.md` §2 (each part's recipe today), §4 "Superstructure, drive, kit". The owner: "the ship
+models or part models, they are really not detailed at all, and on ships it should matter, they should be as realistic
+and as detailed models as there can be, more than our standard, so please full focus on that once everything else is
+finished". Today the deckhouse, funnel, stealth superstructure, hangar and helideck are 12-triangle boxes wearing their 2D
+drawings (the helideck's circle a 2.3 px/m smear), the bridge a box with glass, the diesels have the tanks' olive end
+faces, all three propellers one four-bladed model scaled.
+
+WP16a's contract (a1) is merged: `SG`, `cutColour`, `wear`, `SC`, the `FIT` library, classes and runs, `far`,
+`model(d, flip, skin, ctx)`, `shipPartCtx` (`nb`, `bay`), `CTX_USE` (add your rows with `Object.assign` in your region),
+the `superDress` stub in your region's header. Beside you: WP16a's pipeline, WP16b (hulls), WP16d (weapons): keep out of
+their functions.
+
+You own: parts3d.js `shipKit`, `shipKit2`, `shipAnim`, the region `// ==== ships: superstructure, drive, kit (WP16c) ====`
+(`superDress`), the rows of `CTX_USE` for your styles (`bridgeL`, `house`, `hangar`: aegis, stealth, nb, and `house`: bay;
+`bridge`: nb; `lattice`: aegis); parts.js the kit art: `shBridgePts`, `shRudderLay`, `shWindows`, `shKit`, `shKitPlan`,
+`shKitEnd`, `shKitPts`, `shOutboardLay`, `shJetLay`, `shFoilLay`, `shLatticeLay` (art fields only), `shKit2`, `shKit2Plan`,
+`shKit2End`, a new `shKitLay(d, ctx)` (every window, door, porthole, ladder, vent, raft, boat bay, louvre and yard
+position, and the part's `far`, read by 2D and 3D); test/browser/builder-shapes.mjs a new section 3g; the `[WP16c]` block
+of `ship-models.test.js`'s caps. You must not touch: any def field (sizes, masses, styles, `control`, `funnel`, `deck`,
+`hangar`, `stealth`, `screw`, `foil`, `jet`, `steer`), `def.screw.y` against `shOutboardLay`'s hub and `def.foil.y`/`chord`
+against `shFoilLay` (add fields, never move these), the roles and pivots (`shScrew` about x at the hub, the port one
+turning back; `shRud` about y at `L.xs`; `shOut` at `cl`; `shJet` at `xn`), ship.js, WP16a's merge.
+
+What to build: every part in the design's §3.3 rows for c, by class (mid, near, fine), its cut-in colours and its far
+silhouette, all inside its box (builder-shapes 3e; `tall` rods exempt and listed). **Roofs at the box top** on every
+building (masts, radars and close-in guns stand there); walls covering each face per §3.1a (leans and chamfers ≤ 0.5 m,
+recesses ≤ 2.4 m, the boat counting); per-part `nb` removes a butted wall's doors, ladders, rafts and coaming end; roof-edge
+rails, inclined ladders between levels and roof whips are `superDress`'s, per vessel, culled by every other part's box +
+0.3 m (never across a joint, never under something standing on the roof), `tall` rods above the roof. The Wheelhouse with
+its reverse-raked recessed windows, visor, doors, porthole discs, sidelights, a searchlight and horn in a free front roof
+corner's notch; the Helm Console's windscreen, grab rail, wheel, binnacle, leaning post and a pintle post to its top; the
+Bridge's two full-depth decks with enclosed wings, the raked window band, open wing platforms (notches) with searchlights
+and a pelorus, raft racks, and with `aegis` the leaning walls and the four octagonal array faces; the Deckhouse with
+`bay` (the one nearest amidships) carrying the boat bays (2.2 × 6 × 2.4 m, the RHIB filling the lower half to the face)
+and a davit each side, the others rafts and doors instead; louvred vents, roof kit, and with `aegis` lean; the Stealth
+Superstructure's facets (a knuckle on the box face, split normals), flush window band, flush recesses and composite panel
+grid; the Lattice Mast raked inside its box with platforms, yards (mid), ESM domes (mid), lights, whips, pennant, a top
+gearbox block for the antenna standing on it and a sooty top, and with `aegis` a raked tripod; the Pole Mast's yard,
+lights, top gearbox, whip and pennant; the Funnel's taper, raked top, uptakes with rims, louvred grilles, whistle, ladder,
+black cap and soot, and an explicit far with its black top; the Helicopter Deck's top as a swap pair (midOnly plain,
+near marked: no texture, the 2.3 px/m bug gone), the haul-down groove, edge lights, safety nets' frames and strands
+(closed thin boxes), brackets under any overhang; the Hangar's recessed roller door and its slats, personnel door,
+vents, rafts; the propellers' skewed blades (3, 4 and 5) with a fat hub and rope guard; the rudders' taper, palm and
+anode; the outboard's cowl, plate, gearcase, propeller and bracket on `shOut`; the waterjet's bucket arms and intake
+grille; the hydrofoils' struts, flaps, pods and fairings, coloured by height like a hull (grey, boot-top, antifouling);
+the inner diesels, turbine and kit as tidy hangar and X-ray models in light colours (sRGB luminance ≥ 0.7, so X-ray's
+`GV_MOD` multiply still reads; no olive); the Torpedo Decoy's winch, sheave and towed body. The 2D side, plan and end
+views redrawn from `shKitLay` so 2D and 3D agree. Caps (the design's §6.3 c allocation; mid / near / fine): the Bridge ≤ 3
+/ 5 / 2 k, a Deckhouse ≤ 1.5 / 3 / 1 k, the Lattice Mast ≤ 2 / 2.5 / 1.5 k, a Funnel ≤ 1 / 1 / 0.3 k, the Helicopter Deck ≤
+0.5 (with its midOnly top) / 1.5 / 2 k, the Wheelhouse ≤ 1.2 / 2 / 0.8 k, the Hangar ≤ 1.2 / 2 / 0.8 k, the Stealth
+Superstructure ≤ 2.5 / 2 / 0.5 k, a screw ≤ 1.8 k, a rudder ≤ 0.6 k, the rest ≤ 2.5 k in all; `superDress` on the Arley
+near ≤ 2 k, fine ≤ 8 k; the hangar ≤ 2 meshes per part plus its moving nodes.
+
+Gates: inside its box at rest (3e, unchanged, green); the coverage check (`ship-models.test.js`) green for every building
+and ctx variant; new **3g**: on every stock ship and a cluttered design, every part resting on another (its box bottom
+within 2 cm of the other's box top) meets that part's drawn top within 2 cm (rays down at its footprint's centre and
+corners shrunk 10 %); a helicopter lands on what is drawn (the deck surface to its `deck.hw`); no coplanar overlay
+(cut-in colour, recesses, swap pairs); deterministic; nothing old changes (graphics.mjs, ground-models.mjs; `plated`,
+`latheGeo`, `roofFit`, `gvKit` for tanks untouched: gate everything on your styles).
+
+Tests: `ship-models.test.js` (your block's caps, roles and pivots, inside the box, coverage, classes and runs, relief),
+builder-shapes.mjs 3e and your 3g, catalogue.test, builder-ship.mjs (X-ray of a ship: the inner parts read), ship-drive.mjs
+(propellers turn, rudders, outboards and waterjets swing as before), ship-flight.mjs (the bridge view never inside a part,
+a helicopter on a deck), the full node run and keydiff (nothing moves).
+
+Screenshots (`ship-models.mjs --shots`): `part-*` for your 28 and `sheet-shSuper`, `sheet-shDrive`, `sheet-shKit`; every
+ship's `hangar-<k>-zoom`, `sea-<k>-bridge`, `-30`, `-200`, `phone-<k>-chase` and `phone-<k>-chase-low`; the Vizby's and
+the Arley's `-1500`; the 2D blueprints (side, plan, end views) beside the 3D; side by side with `.../wp16/look/shots/`
+(`beside-ship-jet-tank`, `hangar-olivar-zoom`, `hangar-cyclon-zoom`, `sea-vizby-bridge`, `sea-arley-chase`, `sheet-shSuper`,
+`part-helipad`). LOOK at them beside the Sugoi-27 and the MA-1 in the hangar: the ships' superstructure must read as more
+detailed than both; on the Olivar the long block must read as one (no rail fences or doors at the joints); nothing floats.
+
+Done when: every part seen at sea is grade 3 at 30 m (the design's §1 rubric), the inner ones tidy, light and olive-free,
+the helideck's markings sharp in every tier that draws them, 3e, 3g and the coverage check green, your caps met, nothing
+old moved. Commit in increments (the container can be replaced) and report as soon as the done-criteria hold.
+
+## Ships WP16d: naval weapons and sensors
+
+Read docs/ships/BRIEF-common.md first and follow it, and this file's section "Ships WP16: rules and paths for every WP16 package" (paths, order, the rules every package keeps). Your package: **WP16d naval weapons and sensors** of the ships
+update's detailed models: the 15 `shArms` parts (the design docs/ships/WP16.md: §0, §1, §3.1's weathering row for
+weapons, §3.1a, §3.3's weapons table, §3.4, §5 (`stealth`, `egg`), §6.2's rig shadow rule, §6.3's d allocation,
+§7, §8's interfaces, §9, §11 items 12, 13, 18; spec docs/ships/SPEC.md: §6.4, §8.1, §8.6, §8.10, §12.6). Research:
+`.../wp16/real.md` §3's weapons and sensors rows (each real item's defining shapes: the Mk 45 Mod 4 house and plain
+barrel, the OTO 76's evacuator and slotted brake, the Bofors 57's jacket, the Phalanx's radome, drum, six barrels and FLIR,
+Harpoon canisters with rings on a frame, the Mk 41 module's 2 × 4 hatches and uptake strip, the Mk 32 triple tubes, the
+SPS-49 mesh, a slotted waveguide, the SPG-62 dish and yoke, the Mk 92 egg, the Mk 137's tubes at 45° and 60°) and §2's
+per-ship notes (the Vizby's hidden launchers, tubes and decoys, the Osca's canisters with rings); `.../wp16/look.md`'s
+worst ten #1, #7, #8 and its arms notes; `.../wp16/code.md` §4 "Naval guns", "Naval radars", "Gun House", "Ring". The
+owner: "the ship models or part models, they are really not detailed at all, and on ships it should matter, they should
+be as realistic and as detailed models as there can be, more than our standard, so please full focus on that once
+everything else is finished". Today the first thing an armed ship's camera shows is an olive tank turret on a grey ship
+(the Gun House and ring wear the Armour's art: `gvTurret` ignores `look: 'navyGrey'`), the naval guns are the tank gun,
+the missile launchers planks on sticks, the launch cells skylights, the search radars a 0.34 m strip whatever their size.
+
+WP16a's contract (a1) is merged: `SG`, `cutColour`, `wear`, `SC`, the `FIT` library, classes and runs, `far`,
+`model(d, flip, skin, ctx)`, `shipPartCtx` (`egg`), `CTX_USE` (add your rows with `Object.assign` in your region);
+WP16a's pipeline merges your static pieces and draws each launcher's lids as one mesh from its `nvCap<k>` subs (keep
+those subs, in order), and each moving node as one mesh whose tier is a draw range. Beside you: WP16a's pipeline, WP16b
+(hulls), WP16c (superstructure, drive, kit).
+
+You own: parts3d.js `navalKit`, `navalAnim`, `d.ship` branches at the top of `BUILD.tankGun`, `BUILD.radarAnt`,
+`BUILD.extrude` (the Gun House) and `BUILD.lathe` (the ring), the region `// ==== ships: naval weapons (WP16d) ====`, the
+`CTX_USE` rows for `nvAsm`, `nvTorp`, `nvDecoy` (stealth) and the naval radars (stealth; the track radar also
+egg); parts.js `nvKit`, `nvKitPlan`, `nvKitEnd`, the `nv*Lay` art fields, a `d.ship` branch at the top of `gvTurret` into
+a new `nvHouseDraw`, `gunLayout`'s naval branch into a new `nvGunLay(d)`, `radarLayout`'s naval branch into a new
+`nvRadarLay(d, ctx)`, the ring's naval 2D colour; the `[WP16d]` block of `ship-models.test.js`'s caps. You must not touch:
+any def field (sizes, `weapon`, `aim`, `ciws`, `searchRadar`, `trackRadar`, `look`, styles, the Gun House's `outline`, the
+ring's `gvRingPath`); the sim-read layouts `nvAsmLay(d).mouth`, `nvVlsLay(d).cells`, `nvCiwsLay(d).gun` (ship.js reads
+them: add fields, never move these); Aim's trunnion (−h/2 + 0.18 h) and muzzle (+h/2); the roles and pivots (`yaw`,
+`pitch`, `recoil`, `antenna`, `nvYaw`, `nvPitch`, `nvSpin`, `nvCap<k>`); `gunLayout`, `radarLayout`, `BUILD.tankGun`,
+`BUILD.radarAnt`, `plated`, `roofFit`, `gvTurret` for every tank (the ground update's parts must stay byte-identical: gate
+on `d.ship`); never `body3d` on the Gun House or the ring (it would turn their clash into a box); armour.js, aim.js, ship.js.
+
+What to build (the design's §3.3 weapons rows, each by class, cut-in colour, far): navy grey everywhere `look` says so, in
+2D and 3D; the ring's seal band and drains (3 cm recesses) inside its lathe outline; the Gun House as its own outline prism
+with panel tones, recessed (5 cm) access doors, roof hatch, gun port slot and sight window, soot and grime, all inside the
+prism (builder-shapes 3c, no padding); the four guns from `nvGunLay` (the 57's ribbed jacket, the 76's evacuator and
+slotted brake, the 127's long plain taper, the 152's heavy barrel), each with a rubber blast bag on `pitch` and the barrel
+on `recoil`; the close-in gun's pedestal, carriage, white barrel-shaped radome with its bulge and flat face, drum, six
+barrels with a clamp, FLIR box; the anti-ship launchers' round ringed canisters on a welded frame with their covers on
+`nvCap<k>`, and with `stealth` a low faceted deck box with hatch panels (the Vizby's); the launch cells' flush 2 × 4
+hatches on `nvCap0..7`, the uptake strip, rim, hinges and grime (real gaps between lids, no painted warning lines: they'd
+be sub-pixel strips); the triple tubes in a triangle on their pedestal, and with `stealth` behind a faceted side housing;
+the air radar's open-mesh rectangle **filling its box above a 0.15 m turntable** with its horn feed (the board at mid, the
+bars at near and fine; the gearbox is the mast's), the surface radar's slotted bar (the slot row a 3 cm groove), the
+fire-control radar as a dish on its yoke, a **white egg radome** on `yaw` with `egg` (the `pitch` node kept, empty), each
+with a faceted housing under `stealth` (roles kept, empty where hidden); the decoy launcher's six tubes at 45° and 60°, and
+with `stealth` under a faceted flush-hatch box. No relief under 3 cm (no bolt heads or lifting eyes: colour or nothing).
+The 2D views from the same layouts. Caps (the design's §6.3 d allocation; mid / near / fine): the Gun House ≤ 1 / 1 / 0 k,
+a gun ≤ 0.6 / 0.6 k, the close-in gun ≤ 1.5 / 1.5 / 0.3 k, the air radar ≤ 0.8 / 1.2 / 1.5 k, the surface radar ≤ 0.4 /
+0.4 k, the FC radar ≤ 0.6 / 0.6 k, a launcher ≤ 1 / 0.8 / 0.3 k, the cells ≤ 0.4 / 0.4 / 0.2 k, the tubes ≤ 0.5 / 0.5 k,
+the ring ≤ 0.3 / 0.1 k, the decoy ≤ 0.3 / 0.3 k; exactly one mesh per moving node (the pipeline's draw budget counts on
+it); the parts whose moving node is under 1 m in bounding radius don't cast (the pipeline's rule: design the CIWS drum,
+the FC radar and the barrels' spin group knowing it).
+
+Gates: inside its box at rest (3e) or its outline (3c: the Gun House, the ring); the sim-read layouts identical
+(`ship-models.test.js` snapshot); no coplanar overlay; deterministic; every old tank gun, ring, turret and radar unchanged
+(ground-models.mjs, graphics.mjs, builder-tank.mjs, render-bench's hangar `--same`).
+
+Tests: `ship-models.test.js` (your block), builder-shapes.mjs 3c and 3e, catalogue.test (59 parts, styles, `look`),
+ships-combat.test (guns, launchers, cells and the close-in gun fire from where they did), aim.test, armour.test,
+ground-models.mjs, ship-flight.mjs (gunnery and missile scenes: the barrels recoil, the close-in gun trains and spins, the
+lids go as the cells fire, the egg turns), the full node run and keydiff (nothing moves).
+
+Screenshots (`ship-models.mjs --shots`): `part-*` for your 15 (each ctx variant: plain, `stealth`, `egg`) and
+`sheet-shArms`; every armed ship's `sea-<k>-weapons`, `-30`, `-200`, `-game`, `phone-<k>-game` and `phone-<k>-chase`; the
+2D blueprints; side by side with `.../wp16/look/shots/` (`sea-arley-weapons`, `sea-pegazus-weapons`, `sea-osca-aft`,
+`sea-olivar-bridge`, `sheet-shArms`, `part-nHouse127`, `part-nRadarAir`). LOOK at them: no olive anywhere on a ship part,
+each weapon recognisable as its real kind in the default views.
+
+Done when: the 15 parts are grade 3 at 30 m (the design's §1 rubric), no olive on any ship part, the guns, launchers and
+radars read as the real kit in the default views, your caps met, every check above green, nothing old moved. Commit in
+increments (the container can be replaced) and report as soon as the done-criteria hold.
+
+## Ships WP16e: the stock ships, the budgets met, the proof
+
+Read docs/ships/BRIEF-common.md first and follow it, and this file's section "Ships WP16: rules and paths for every WP16 package" (paths, order, the rules every package keeps). Your package: **WP16e the stock ships, the budgets and the proof**
+of the ships update's detailed models (the design docs/ships/WP16.md whole, above all §1, §6.3, §6.5, §7, §7a, §9, §12;
+spec docs/ships/SPEC.md: §7 the stock ships and their balance targets, §14 invariants, §15). The owner: "the ship models
+or part models, they are really not detailed at all, and on ships it should matter, they should be as realistic and as
+detailed models as there can be, more than our standard, so please full focus on that once everything else is
+finished". The owner was told the detail is looks only: your template moves are the one exception, each listed so the
+lead can tell them.
+
+WP16a (contract, pipeline and the a3 integration), WP16b (hulls), WP16c (superstructure, drive, kit) and WP16d (weapons
+and sensors) are merged. Read their reports first, a3's above all: the budgets met or missed, the fixes it made, anything
+left for you.
+
+You own: builder.js `TEMPLATES`' ships block (the design's §7a list only: the Arley's gun group to x ≈ 70, her aft
+Vertical Launcher to ≈ −49.5, ahead of her flight deck, and her forward Deckhouse from x 28 to 30 (its fore face on the
+Bridge's aft face; the funnel at 26 stays on it); the Olivar's gun group to ≈ 52.6; the Vizby's to ≈ 31.5; the Pegazus'
+aft until the house's fore corners are inside the deck; the Zodiak's and Higgens' heavy MGs onto the console's post if a
+gap over 5 cm remains; `navyGrey` paint for the old weapon parts aboard the Cyclon, Osca, Zodiak and Higgens (the Cyclon's
+ring and turret keep `patrolWhite`)), every new position placed by `Ship.spotOf`'s taps where it can be; the re-baselines
+of those ships' own keys; the final measurements and pictures. Nothing else: no part added or removed, no mass, price or
+def changed; a fault found in another package's code goes back to the lead as a finding (with the repro), not fixed in
+your worktree unless the lead says so. If the owner answers the design's §12 questions before you start, follow the
+answers (question 2 can drop any move).
+
+What to do: the moves and paints, each one its own small commit naming the keys it moves; ships.test's §7 trials for
+each moved ship (displacement, speed, turning, roll, cost in tier) still green; builder-shapes 3e, 3f and 3g green on the
+moved ships (nothing floats, nothing clashes); `node test/run.mjs` with every old baseline identical and only the listed
+ships' keys moving (keydiff 71c3af7 with the ship keys `--add`ed as BRIEF-common says, and the moved keys listed); then
+the proof: `ship-models.mjs` on a phone (390 × 844, DPR 1.75) and a desktop (1280 × 720), High and Low, every stock ship at
+every tier against the design's §6.3 table; render-bench before (the branch tip before WP16a) and after on `ship1k`,
+`shipbig`, `phonechase`, `hangarship`, `shipnear`, `fleet` (phone Low and High, desktop High; several alternating runs,
+the spread reported, every ship's tier logged) against the §6.5 rows, and `--same` on every non-ship scene and the
+hangar; graphics.mjs, ground-models.mjs, water.mjs, ship-flight.mjs, ship-drive.mjs, deaths.mjs, naval-range.mjs,
+naval-practice.mjs, naval-battle.mjs, builder-ship.mjs, builder-shapes.mjs, controls.mjs, redraw.mjs; the longest frame on
+the 4× phone profile while the Naval Practice battle spawns six ships (≤ base + 16 ms), and a peer's unknown design
+arriving in a two-window room (the number and the name the same on both screens).
+
+Screenshots: `ship-models.mjs --shots` for every ship and part; for each ship, before (`.../wp16/look/shots/`) and after
+sheets side by side at 30 m, 200 m and 1.5 km, the game's own view on a phone in portrait (DPR 1.75) and a desktop, the
+phone's chase on High and Low, and the hangar zoom beside the Sugoi-27's and the MA-1's (`beside-ship-jet-tank`); tick the
+design's §9 checklist for every ship, item by item, in the named shots, and write down what fails. LOOK at them as the
+owner would: on a phone, in portrait, in the first second of a flight.
+
+Done when: every stock ship meets the §6.3 table on both profiles, the §6.5 rows hold, every old baseline and old scene is
+identical, the moved ships' trials pass and their keys are listed, the §9 checklists are ticked (or each miss reported
+with its shot), and the before/after sheets are in the report for the lead's PR body (a table of triangles, draws and
+shadow draws per ship, before and after, has gone down well with the owner). Commit in increments (the container can be
+replaced) and report as soon as the done-criteria hold.
