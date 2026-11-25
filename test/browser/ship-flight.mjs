@@ -771,11 +771,14 @@ for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, fa
     } finally { Object.assign(Sound, was); }
     // the scorches: a hole 0.3 m under her deck edge (the Arley's side), a missile's 3.5 m² there, and the RIB holed through
     const z = mk('zodiak', -6500), marks = [];
+    // (amidships on a hull part, under her deck edge by `under` m, in her own section mapped as Ship.addHoles' rows are;
+    // the scorch's rim, 0.75 of its half-size, against her deck edge and her keel there; moved: how far it came down)
     for (const [v, ar, under] of [[a, 0.5, 0.3], [a, 3.46, 0.3], [a, 1.18, 1.5], [z, 20, 0.2]]) {
-      const H = v.parts.filter((p) => p.def.shull), p = H[Math.floor(H.length / 2)], S = shullOf(p.def), ring = S.rings[Math.floor(S.rings.length / 2)], x = ring.x, y = ring.yd - under;
-      p.holes = [{ x: p.x + x, y: p.y + y, z: partZ(p) + 50, a: ar, fix: 0 }];
-      const M = Ship.holeMarks(v)[0], own = { x: M.x - p.x, y: M.y - p.y };
-      marks.push({ ship: v.name, a: ar, s: +M.s.toFixed(2), c: +M.c.toFixed(2), top: +(own.y + 0.75 * M.s - ring.yd).toFixed(2), bot: +(own.y - 0.75 * M.s - ring.yk).toFixed(2), side: !M.ny && !M.nx });
+      const H = v.parts.filter((p) => p.def.shull), p = H[Math.floor(H.length / 2)], S = shullOf(p.def), x = (S.x0 + S.x1) / 2, sec = shullSec(p.def.shull.st, x);
+      const Q = partPt(p, x, sec[0] - under), D = partPt(p, x, sec[0]), K = partPt(p, x, sec[1]);
+      p.holes = [{ x: Q.x, y: Q.y, z: partZ(p) + sec[2] + 0.5, a: ar, fix: 0 }];
+      const M = Ship.holeMarks(v)[0];
+      marks.push({ ship: v.name, a: ar, s: +M.s.toFixed(2), c: +M.c.toFixed(2), moved: +(Q.y - M.y).toFixed(2), top: +(M.y + 0.75 * M.s - D.y).toFixed(2), bot: +(M.y - 0.75 * M.s - K.y).toFixed(2), side: !M.ny && !M.nx });
       p.holes = null;
     }
     return { ...out, marks };
@@ -784,7 +787,8 @@ for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, fa
   ok(`[WP12] her close-in gun's buzz (${sr.buzz}) stops when she is lost: its flag cleared (${sr.gunOff}), and none from a lost ship (${sr.buzzLost})`, sr.buzz === 1 && sr.gunOff && sr.buzzLost === 0, sr);
   ok(`[WP12] a dropped torpedo's splash as it meets the water (${sr.drop.wet} s: ${JSON.stringify(sr.drop.played)}), her own tube one launch sound (${sr.tube.torp} + ${sr.tube.sep})`,
     sr.drop.wet != null && sr.drop.played.length === 1 && sr.drop.played[0].t >= sr.drop.wet && sr.drop.played[0].t < sr.drop.wet + 0.2 && sr.tube.fired && sr.tube.torp === 1 && sr.tube.sep === 0, sr);
-  ok(`[WP12] the holes' scorches on her plating: under her deck edge and over her keel (${sr.marks.map((m) => `${m.ship} ${m.a} m²: ${m.s} m, ${m.top} m to the edge`).join('; ')})`, sr.marks.every((m) => m.side && m.top <= 0.01 && m.bot >= -0.01 && m.s >= 0.05), sr.marks);
+  ok(`[WP12] the holes' scorches on her plating: under her deck edge and over her keel (${sr.marks.map((m) => `${m.ship} ${m.a} m²: ${m.s} m, down ${m.moved} m, ${m.top} m to the edge`).join('; ')}); one 1.5 m under it as it was`,
+    sr.marks.every((m) => m.side && m.top <= 0.01 && m.bot >= -0.01 && m.s >= 0.05) && sr.marks[0].moved > 0.3 && sr.marks[2].moved === 0 && sr.marks[3].s < 1, sr.marks);
   // the loudness: each mix a ship asks for, rendered offline (the master at the default 0.8), RMS in dB
   const lv = await page.evaluate(async () => {
     const SR = 44100, N = SR * 3, out = {};
