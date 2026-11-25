@@ -776,8 +776,9 @@ for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, fa
     for (const [v, ar, under] of [[a, 0.5, 0.3], [a, 3.46, 0.3], [a, 1.18, 1.5], [z, 20, 0.2]]) {
       const H = v.parts.filter((p) => p.def.shull), p = H[Math.floor(H.length / 2)], S = shullOf(p.def), x = (S.x0 + S.x1) / 2, sec = shullSec(p.def.shull.st, x);
       const Q = partPt(p, x, sec[0] - under), D = partPt(p, x, sec[0]), K = partPt(p, x, sec[1]);
+      for (const q of H) q.holes = null; // (the clang checks' holes gone: this one alone)
       p.holes = [{ x: Q.x, y: Q.y, z: partZ(p) + sec[2] + 0.5, a: ar, fix: 0 }];
-      const M = Ship.holeMarks(v)[0];
+      const M = Ship.holeMarks(v).find((m) => m.p === p);
       marks.push({ ship: v.name, a: ar, s: +M.s.toFixed(2), c: +M.c.toFixed(2), moved: +(Q.y - M.y).toFixed(2), top: +(M.y + 0.75 * M.s - D.y).toFixed(2), bot: +(M.y - 0.75 * M.s - K.y).toFixed(2), side: !M.ny && !M.nx });
       p.holes = null;
     }
