@@ -231,11 +231,12 @@ const Sound = {
   // beaten by their firing pulse, quickening with their load: rpm 0..1), a gas turbine's roar and whine (rising with its
   // spool), an outboard's two-stroke buzz, the bow wave's hiss with her speed, flooding's gurgle (the bridge view), a
   // close-in gun's ripping buzz while it fires. size (0..1: a RIB's 330 kW to a destroyer's 80 MW) makes the engines
-  // louder and lower. At full, a destroyer at flank is as present as a tank at full power, a RIB a little under it, and
-  // the close-in gun beside the view louder than both (test/browser/ship-flight.mjs measures them).
+  // louder and lower. At full, a destroyer at flank (about -18 dB) is as present as a tank at full power (-17), a RIB a
+  // little under it (-20), and the close-in gun beside the view as loud as either; with both her loops and the gun at full
+  // the mix still peaks under 1 (test/browser/ship-flight.mjs measures them).
   // seaOn: any of them still playing (Flight.update keeps asking while so).
   seaOn: false,
-  SEA: { diesel: 1.6, turbine: 1.65, whine: 0.11, petrol: 0.24, hiss: 0.25, gurgle: 1.2, ciws: 1.2, gun: 0.48 }, // (each voice's gain at full)
+  SEA: { diesel: 1.6, turbine: 1.5, whine: 0.11, petrol: 0.24, hiss: 0.25, gurgle: 1.2, ciws: 1.0, gun: 0.4 }, // (each voice's gain at full)
   sea(L) {
     if (!this.ctx) { this.seaOn = false; return; }
     const ctx = this.ctx, G = this._sea || (this._sea = {}), on = !!L, K = this.SEA;

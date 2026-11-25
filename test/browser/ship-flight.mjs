@@ -741,7 +741,9 @@ for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, fa
     Sound.clang = (k, d) => log.clang.push(Math.round(d)); Sound.torpedo = (d, drop) => log.torp.push({ d: Math.round(d), drop: !!drop, t: +F.time.toFixed(2) }); Sound.sea = (L) => { log.sea = L ? { ...L } : null; }; Sound.separate = () => log.sep++;
     const out = {};
     try {
-      const step = (n = 3) => { for (let i = 0; i < n; i++) { F.time += 1 / 60; Ship.sounds(F, 1 / 60); } };
+      // (the camera over the Arley as the body moves on: the view's place is absolute, so it is put again with the time)
+      const cam = () => { const bp = bodyPos(EARTH, F.time); F.camAbs = { x: bp.x + a.x, y: bp.y + a.y, z: a.z }; };
+      const step = (n = 3) => { for (let i = 0; i < n; i++) { F.time += 1 / 60; cam(); Ship.sounds(F, 1 / 60); } };
       const hole = (v, ar) => { const h = v.parts.filter((p) => p.def.shull)[1]; (h.holes = h.holes || []).push({ x: h.x, y: h.y, z: 0, a: ar, fix: 0 }); };
       step();
       hole(a, 0.8); step(); out.first = log.clang.length; // (her first hole: a clang)
@@ -756,7 +758,7 @@ for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, fa
       const s = { k: 'stor', b: EARTH, x: P.x, y: P.y, z: P.z, vx: fw.x * 60, vy: fw.y * 60, vz: fw.z * 60, dx: fw.x, dy: fw.y, dz: fw.z, t: 0, run: 0, ph: 'air', owner: { parts: [{}], name: 'Plane', kind: 'plane', body: EARTH }, spd: 22, depth: 6, dep: 0, range: 8000, cone: 0.5, acquire: 1500, dmg: 0, blast: 0, seek: 'none', drop: true, life: 600 };
       Combat.S.shots.push(s);
       let wet = null;
-      for (let i = 0; i < 1200 && Combat.S.shots.includes(s); i++) { if (!Ship.torpStep(s, 1 / 120, F)) break; if (s.ph === 'run' && wet == null) wet = +F.time.toFixed(2); F.time += 1 / 120; if (i % 2) Ship.sounds(F, 1 / 60); if (wet != null && F.time > wet + 0.2) break; }
+      for (let i = 0; i < 1200 && Combat.S.shots.includes(s); i++) { if (!Ship.torpStep(s, 1 / 120, F)) break; if (s.ph === 'run' && wet == null) wet = +F.time.toFixed(2); F.time += 1 / 120; if (i % 2) { cam(); Ship.sounds(F, 1 / 60); } if (wet != null && F.time > wet + 0.2) break; }
       s.dead = true; Combat.S.shots.splice(Combat.S.shots.indexOf(s), 1);
       out.drop = { wet, played: log.torp.filter((x) => x.drop) };
       log.torp.length = 0; log.sep = 0;

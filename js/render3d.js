@@ -5560,34 +5560,41 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     return b.radius + Math.max(groundAt(b, ca, gz), b === EARTH ? shipTop(ca, gz) : -Infinity, sea > -Infinity ? sea : 0) + SHIP.CAM.sea;
   }
   // [WP12] A ship's aim camera handing over to the follow camera (she is lost, or her guns gone) without a cut: the eye
-  // swung from where the aim camera stood to where the follow camera stands (its way slerped, its distance eased) and the
-  // view from along the aim to her middle, over SHIP.CAM.ease s of the flight's time (paused, it waits); both from her
-  // reach, so neither jumps. Fed every frame
-  // with the camera's place (sim, from the focus) and mode; returns { x, y, z, lx, ly, lz } (the eye and where it looks,
-  // from the focus) while easing, else null. Ships only: any other craft returns null at the first test.
-  const SE = { v: null, frame: -1, t: -1, t0: 0, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0, out: { x: 0, y: 0, z: 0, lx: 0, ly: 0, lz: 0 } };
+  // swung round her from where the aim camera stood to where the follow camera stands (its bearing round her up turned
+  // the shorter way, its height and distance eased) and the view from along the aim to her middle, over SHIP.CAM.ease s
+  // of the flight's time, up to twice that for a swing half way round (paused, it waits); both from her reach, so
+  // neither jumps. Fed every frame with the camera's place (sim, from the focus) and mode; returns { x, y, z, lx, ly, lz }
+  // (the eye and where it looks, from the focus) while easing, else null. Ships only: any other craft returns null at
+  // the first test.
+  const SE = { v: null, frame: -1, t: -1, t0: 0, T: 1, sg: 1, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0, out: { x: 0, y: 0, z: 0, lx: 0, ly: 0, lz: 0 } };
   function shipEase(F, v, b, AC, other, D, fx, fy, fz, x, y, z) {
     if (!isSea(v.kind) || v !== F.active || typeof SHIP === 'undefined') { SE.v = null; return null; }
     if (AC) { SE.v = v; SE.frame = frameNo; SE.t = -1; SE.ax = x; SE.ay = y; SE.az = z; SE.dx = D.x; SE.dy = D.y; SE.dz = D.z; return null; }
     if (other || SE.v !== v) { SE.v = null; return null; }
+    // (her up at the focus; each end's height over her and its level part, and the turn between them round her up)
+    const fr = Math.hypot(fx, fy, fz) || 1, kx = fx / fr, ky = fy / fr, kz = fz / fr;
+    const av = SE.ax * kx + SE.ay * ky + SE.az * kz, ahx = SE.ax - kx * av, ahy = SE.ay - ky * av, ahz = SE.az - kz * av, ah = Math.hypot(ahx, ahy, ahz);
+    const bv = x * kx + y * ky + z * kz, bhx = x - kx * bv, bhy = y - ky * bv, bhz = z - kz * bv, bh = Math.hypot(bhx, bhy, bhz);
+    if (ah < 1e-3 || bh < 1e-3) { SE.v = null; return null; } // (one end straight over her: nothing to swing round)
+    let th = Math.atan2(kx * (ahy * bhz - ahz * bhy) + ky * (ahz * bhx - ahx * bhz) + kz * (ahx * bhy - ahy * bhx), ahx * bhx + ahy * bhy + ahz * bhz);
+    if (SE.t >= 0 && th * SE.sg < -Math.PI / 2) th += 2 * Math.PI * SE.sg; // (the way it set out, should the far end drift past half way round)
     if (SE.t < 0) { // (the aim camera's last frame was the one before, and it gave way as she was lost or her guns went: the
       // player's own step out of the aim view stays a cut, the follow camera answering the drag at once)
       if (SE.frame !== frameNo - 1 || !(F.destroyed || v.fate || !(v.aimed && v.aimed.length))) { SE.v = null; return null; }
-      SE.t0 = F.time;
+      SE.t0 = F.time; SE.T = SHIP.CAM.ease * (1 + Math.abs(th) / Math.PI); SE.sg = th < 0 ? -1 : 1;
     }
     SE.t = Math.max(0, F.time - SE.t0); SE.frame = frameNo;
-    const T = SHIP.CAM.ease;
+    const T = SE.T;
     if (SE.t >= T) { SE.v = null; return null; }
-    const e = smoothstep(0, T, SE.t), da = Math.hypot(SE.ax, SE.ay, SE.az) || 1, db = Math.hypot(x, y, z) || 1;
-    let ux = lerp(SE.ax / da, x / db, e), uy = lerp(SE.ay / da, y / db, e), uz = lerp(SE.az / da, z / db, e);
-    const l = Math.hypot(ux, uy, uz);
-    if (l < 1e-3) { SE.v = null; return null; } // (straight across her: no way between to swing by)
-    const d = lerp(da, db, e), O = SE.out;
-    O.x = (ux / l) * d; O.y = (uy / l) * d; O.z = (uz / l) * d;
+    // (the aim's level way turned by e of the turn, at the eased level distance and height)
+    const e = smoothstep(0, T, SE.t), c = Math.cos(th * e), sn = Math.sin(th * e), ux = ahx / ah, uy = ahy / ah, uz = ahz / ah;
+    const rx = ux * c + (ky * uz - kz * uy) * sn, ry = uy * c + (kz * ux - kx * uz) * sn, rz = uz * c + (kx * uy - ky * ux) * sn, hl = lerp(ah, bh, e), vl = lerp(av, bv, e), O = SE.out;
+    O.x = rx * hl + kx * vl; O.y = ry * hl + ky * vl; O.z = rz * hl + kz * vl;
     // (kept over the sea and the ground as both ends were)
     const r = Math.hypot(fx + O.x, fy + O.y, fz + O.z), need = camFloor(b, fx + O.x, fy + O.y, fz + O.z, r, 2);
     if (r < need) { const k = need / r; O.x = (fx + O.x) * k - fx; O.y = (fy + O.y) * k - fy; O.z = (fz + O.z) * k - fz; }
     // (where it looks: from a point along the aim as far out as the eye stood, to her middle)
+    const da = Math.hypot(SE.ax, SE.ay, SE.az);
     O.lx = (SE.ax + SE.dx * da) * (1 - e); O.ly = (SE.ay + SE.dy * da) * (1 - e); O.lz = (SE.az + SE.dz * da) * (1 - e);
     return O;
   }
