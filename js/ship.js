@@ -120,7 +120,7 @@ const SHIP = {
   //   listAlone°; it is critical past sinkK of her reserve buoyancy taken; ship sounds within `hear` m of the view; heel,
   //   trim and the waterline eased over `smooth` s for the diagram; her engines' size for their sound from 10^kw0 kW (a
   //   RIB's outboards: 0) over kwSpan decades (a destroyer's 80 MW: 1))
-  CAM: { near: 0.8, sea: 0.3, rim: 0.75, ease: 1.5 }, // [WP12] the bridge view's eye at least `near` m over any of her own parts it would be in, and `sea` m over the wave at it; a hole's scorch drawn out to `rim` of its half-size (held to her plating by it); the aim camera eased into the follow camera over `ease` s when she is lost
+  CAM: { near: 0.8, sea: 0.3, rim: 0.75, ease: 1.5, fit: 0.85 }, // [WP12] the bridge view's eye at least `near` m over any of her own parts it would be in, and `sea` m over the wave at it; a hole's scorch drawn out to `rim` of its half-size (held to her plating by it); the aim camera eased into the follow camera over `ease` s when she is lost; the follow camera far enough back that her farther end seen broadside lies at most `fit` of the way from the screen's middle to its side (a phone in portrait: her bow and stern on it from any bearing)
   // ---- the builder (§11.3) [WP4]: the still-water float, top speed, tap placement and the warnings
   BUILD: { tol: 2e-4, iters: 8, dA: 0.003, dGM: 0.02, gmLow: 0.3, heel: 2, trim: 1, free: 0.25, capsize: 60,
            vMax: 40, vStep: 0.25, turn: [4.5, 0.25, 1.2, 10], steerA: 1.5, inM: 0.03, step: 0.25, pair: 0.4, wash: 0.05, dry: 0.5 },
@@ -5028,6 +5028,19 @@ const Ship = (() => {
     if (!B) return 30;
     return clamp(1.2 * Math.max(B.maxX - B.minX, B.maxY - B.minY, 10), 30, 200);
   }
+  // How far back her follow camera stands as she sets out (m; Flight.naturalScale, ships in 3D) on a W×H screen (the 50°
+  // camera's): her reach (aimFar, so a desktop's and a landscape phone's is the aim camera's own), or, where the screen is
+  // narrower than that frames, far enough that her farther end from her centre of mass (where the camera looks) seen
+  // broadside lies at most CAM.fit of the way from the screen's middle to its side: from any bearing round her, bow and
+  // stern both on a phone in portrait (her reach put the Osca's to the Arley's stern off its left edge, under her HOLD and
+  // DC). The aim camera's hand-over on her loss (render3d shipEase) eases the distance too.
+  function chaseFar(v, W, H) {
+    const B = v && v.bounds, near = aimFar(v);
+    if (!B || !(W > 0 && H > 0)) return near;
+    const c = v.com && Number.isFinite(v.com.x) ? clamp(v.com.x, B.minX, B.maxX) : (B.minX + B.maxX) / 2;
+    const h = Math.max(B.maxX - c, c - B.minX, 5), t = (Math.tan((25 * Math.PI) / 180) * W) / H;
+    return Math.max(near, h / (SHIP.CAM.fit * t));
+  }
   // The bridge view (render3d, Ships: H): the drawn sea's height at body-relative point P (m over the sphere: the still
   // water's level and the swell's height there, as the swell patch draws it from Ship.wave; −Infinity over land), so the
   // eye keeps over the wave it is at and no higher (over the highest crest anywhere, the eye of a boat in a trough stood
@@ -5099,7 +5112,7 @@ const Ship = (() => {
     // frame
     frame, fx,
     // hud
-    hud, help, keys, alert, act: helmAct, holeMarks, sounds, aimFar, seaAt, eyeOut, diagram: (F) => { const v = F && F.active; if (v && v.sh && HUD.el) { HD.key = ''; HD.at = -1e9; diagram(F, v, v.sh); } }, _hud: { HUD, HD, AL, hullGeo }, // [WP12]
+    hud, help, keys, alert, act: helmAct, holeMarks, sounds, aimFar, chaseFar, seaAt, eyeOut, diagram: (F) => { const v = F && F.active; if (v && v.sh && HUD.el) { HD.key = ''; HD.at = -1e9; diagram(F, v, v.sh); } }, _hud: { HUD, HD, AL, hullGeo }, // [WP12]
     // ai
     aiDown, flyStriker, range, practice, battle: null,
     // mp

@@ -5562,10 +5562,10 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   // [WP12] A ship's aim camera handing over to the follow camera (she is lost, or her guns gone) without a cut: the eye
   // swung round her from where the aim camera stood to where the follow camera stands (its bearing round her up turned
   // the shorter way, its height and distance eased) and the view from along the aim to her middle, over SHIP.CAM.ease s
-  // of the flight's time, up to twice that for a swing half way round (paused, it waits); both from her reach, so
-  // neither jumps. Fed every frame with the camera's place (sim, from the focus) and mode; returns { x, y, z, lx, ly, lz }
-  // (the eye and where it looks, from the focus) while easing, else null. Ships only: any other craft returns null at
-  // the first test.
+  // of the flight's time, up to twice that for a swing half way round (paused, it waits); both framed from her size
+  // (Ship.aimFar, Ship.chaseFar: farther on a phone in portrait), so neither jumps. Fed every frame with the camera's
+  // place (sim, from the focus) and mode; returns { x, y, z, lx, ly, lz } (the eye and where it looks, from the focus)
+  // while easing, else null. Ships only: any other craft returns null at the first test.
   const SE = { v: null, frame: -1, t: -1, t0: 0, T: 1, sg: 1, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0, out: { x: 0, y: 0, z: 0, lx: 0, ly: 0, lz: 0 } };
   function shipEase(F, v, b, AC, other, D, fx, fy, fz, x, y, z) {
     if (!isSea(v.kind) || v !== F.active || typeof SHIP === 'undefined') { SE.v = null; return null; }

@@ -428,9 +428,11 @@ for (const vp of [[390, 844, true], [1280, 720, false]]) {
 //  - a magazine with a fire at it; a ship of theirs we doomed: SUNK in the aim view;
 //  - the holes as scorched patches on her skin (Render3D's decals): two shells' by her forward gun, the one on her
 //    forecastle on the screen from aft on every screen, the one in her side from abeam on a desktop; her aim camera
-//    framing her whole as she sets out, its zoom out to her length and in to 7 m;
+//    framing her whole as she sets out, its zoom out to her length and in to 7 m (its first notch in seen on a phone,
+//    out past her reach the follow camera's own stand), her loss eased into a follow camera that frames her whole;
 //  - her sounds (the telegraph's bell, the engines' level by the telegraph).
-// Then the follow camera as an unarmed ship sets out (the RIB close, the Cyclon whole) and the bridge view in a Rough sea
+// Then the follow camera as an unarmed ship sets out (the RIB close, the Cyclon whole; on a phone in portrait the Osca and
+// the Arley whole from astern, abeam both ways and on her quarter: ship-chase-*) and the bridge view in a Rough sea
 // (the RIB on a phone, the Cyclon on a desktop): the eye never inside her, over the wave at it; and a
 // phone's sinking: the diagram filling, ABANDON SHIP. Screenshots: ship-hud-*, ship-flooding-*, ship-holes-* (ship-holes-side-*),
 // ship-torpedo-*, ship-torprun-*, ship-sunk-banner-*, ship-bridge-rough-*, ship-sink-phone-*.
@@ -615,11 +617,19 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
     ok(`${tag}a ship of theirs going down: SUNK over the crosshair in the aim view; it and OUT OF ACTION (with "${sb.alert}" up) where nothing covers them (${JSON.stringify([sb.B, oa.B])})`, sb.drawn && oa.drawn && !sb.hit.length && !oa.hit.length, { sb, oa });
     await page.evaluate(() => { const e = Flight.active.parts.find((q) => q.def.engine); if (e) e.fire = 0; });
   }
-  // her aim camera: back to her length's reach and in to 7 m (it was held to 30 m)
-  const zm = await page.evaluate(() => { const k = App.H / 2 / Math.tan((25 * Math.PI) / 180), z = () => k / Flight.scale; for (let i = 0; i < 30; i++) Flight.zoomBy(0.7); const far = z(); for (let i = 0; i < 40; i++) Flight.zoomBy(1.4); const near = z(); for (let i = 0; i < 30; i++) Flight.zoomBy(0.7); return { far, near, reach: Ship.aimFar(Flight.active), in: k / Math.min(80, k / 7) }; });
-  ok(`${tag}her aim camera zooms out to ${zm.far.toFixed(0)} m (her reach ${zm.reach.toFixed(0)} m, not 30) and in to ${zm.near.toFixed(1)} m (as any craft's)`, Math.abs(zm.far - zm.reach) < 1 && zm.reach > 150 && Math.abs(zm.near - zm.in) < 0.2, zm);
-  // [WP12 fix] her loss without a cut: the aim camera eased into the follow camera (both from her reach), frame by frame
-  // (the follow camera's distance once from naturalScale: 119 m → 457 m in one frame on a phone, and a 30° swing)
+  // her aim camera: back to her length's reach and in to 7 m (it was held to 30 m); [WP12 fix] its first notch in seen
+  // from where she set out (on a phone in portrait her follow camera stands farther back than her reach, Ship.chaseFar:
+  // the notch went into that gap), and zoomed out past her reach the follow camera's own stand again (her loss eases
+  // into it: her reach alone put a destroyer's stern off a phone's screen)
+  const zm = await page.evaluate(() => { const k = App.H / 2 / Math.tan((25 * Math.PI) / 180), z = () => k / Flight.scale, v = Flight.active, reach = Ship.aimFar(v), ad = () => Math.min(z(), reach);
+    const set = z(), a0 = ad(); Flight.zoomBy(1.4); const a1 = ad();
+    for (let i = 0; i < 30; i++) Flight.zoomBy(0.7); const far = ad(), back = z(); for (let i = 0; i < 40; i++) Flight.zoomBy(1.4); const near = ad(); for (let i = 0; i < 30; i++) Flight.zoomBy(0.7);
+    return { set, a0, a1, far, back, chase: Ship.chaseFar(v, innerWidth, innerHeight), near, reach, in: k / Math.min(80, k / 7) }; });
+  ok(`${tag}her aim camera zooms out to ${zm.far.toFixed(0)} m (her reach ${zm.reach.toFixed(0)} m, not 30) and in to ${zm.near.toFixed(1)} m (as any craft's); its first notch in seen (${zm.a0.toFixed(0)} → ${zm.a1.toFixed(0)} m, her follow camera ${zm.set.toFixed(0)} m back), and out past her reach the follow camera's own stand (${zm.back.toFixed(0)} m; Ship.chaseFar ${zm.chase.toFixed(0)} m)`,
+    Math.abs(zm.far - zm.reach) < 1 && zm.reach > 150 && Math.abs(zm.near - zm.in) < 0.2 && zm.a1 < zm.a0 / 1.3 && zm.chase >= zm.reach - 0.01 && Math.abs(zm.back - zm.chase) < 1, zm);
+  // [WP12 fix] her loss without a cut: the aim camera eased into the follow camera (from her reach to the follow camera's
+  // stand, Ship.chaseFar: on a phone in portrait farther back), frame by frame (the follow camera's distance once from
+  // naturalScale: 119 m → 457 m in one frame on a phone, and a 30° swing); at its end her bow and stern on the screen
   if (vp[0] !== 390) {
     await page.evaluate(() => {
       window.__cam = []; const R = Render3D.renderFlight;
@@ -629,12 +639,13 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
     await page.evaluate(() => window.__simWait(0.3, true));
     await page.evaluate(() => { Ship.doom(Flight.active, Flight, 'sunk'); });
     await page.evaluate(() => window.__simWait(2.5, true));
-    const cm = await page.evaluate(() => { const C = window.__cam, far = Ship.aimFar(Flight.active); let turn = 0, dr = 0;
+    const cm = await page.evaluate(() => { const C = window.__cam, far = Ship.aimFar(Flight.active), chase = Ship.chaseFar(Flight.active, innerWidth, innerHeight); let turn = 0, dr = 0;
       for (let i = 1; i < C.length; i++) { const p = C[i - 1], c = C[i], dt = c.t - p.t; if (!(dt > 0)) continue; turn = Math.max(turn, (Math.abs(Math.atan2(Math.sin(c.a - p.a), Math.cos(c.a - p.a))) * 57.3) / dt); dr = Math.max(dr, Math.abs(c.d - p.d) / Math.max(1, p.d)); }
-      return { n: C.length, aimed: C.filter((c) => c.aim).length, turn: +turn.toFixed(0), dr: +dr.toFixed(3), d0: +C[0].d.toFixed(0), d1: +C[C.length - 1].d.toFixed(0), far: +far.toFixed(0) }; });
+      return { n: C.length, aimed: C.filter((c) => c.aim).length, turn: +turn.toFixed(0), dr: +dr.toFixed(3), d0: +C[0].d.toFixed(0), d1: +C[C.length - 1].d.toFixed(0), far: +far.toFixed(0), chase: +chase.toFixed(0) }; });
+    const lf = await framing(page);
     await shot(page, `lost-camera-${sz}`);
-    ok(`${tag}her loss: the aim camera eased into the follow camera (${cm.n} frames: at most ${cm.turn}°/s round her, ${(cm.dr * 100).toFixed(1)}% of its distance a frame; ${cm.d0} m → ${cm.d1} m, her reach ${cm.far} m)`,
-      cm.n > 8 && cm.aimed > 0 && cm.aimed < cm.n && cm.turn <= 90 && cm.dr <= 0.1 && cm.d1 <= cm.far * 1.15, cm);
+    ok(`${tag}her loss: the aim camera eased into the follow camera (${cm.n} frames: at most ${cm.turn}°/s round her, ${(cm.dr * 100).toFixed(1)}% of its distance a frame; ${cm.d0} m → ${cm.d1} m, her reach ${cm.far} m, the follow camera's stand ${cm.chase} m), her bow and stern on the screen (${JSON.stringify(lf.ends)})`,
+      cm.n > 8 && cm.aimed > 0 && cm.aimed < cm.n && cm.turn <= 90 && cm.dr <= 0.1 && cm.d1 <= cm.chase * 1.15 && lf.on, { cm, lf });
   }
   await pageErrors(page, tag + 'hud ');
   await ctx.close();
@@ -674,6 +685,44 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   await shot(page, 'flooding-ui125-360x640');
   ok(`${tag}"${r2.text}" (${r2.alert && [r2.alert.l, r2.alert.t, r2.alert.r, r2.alert.b].map(Math.round)}) clear of her hull diagram, its heel and trim, the flight data and the scope`,
     /^Flooding/.test(r2.text) && !meet(r2.alert, r2.cv) && !meet(r2.alert, r2.hl) && !meet(r2.alert, r2.tel) && (!r2.scope || !meet(r2.alert, r2.scope)), r2);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+// ---- [WP12 fix] the follow camera on a phone in portrait (spec §12.2: "a 156 m ship framed whole"): from her reach alone
+// (Ship.aimFar) the Osca's to the Arley's stern lay off the screen's left edge, under HOLD and DC; it stands back by the
+// screen's width too (Ship.chaseFar). Unarmed (so she starts in the follow camera), as she sets out and swung broadside
+// both ways and on her quarter (Render3D.orbitBy): bow and stern on the screen, clear of its sides by 4% of its width.
+// Measured as each frame is drawn, from the camera's own focus
+{
+  const tag = '360×640 chase ', { ctx, page } = await open([360, 640, true], tag);
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(() => {
+    const R = Render3D.renderFlight;
+    Render3D.renderFlight = function (...a) {
+      const r = R.apply(this, a), F = Flight, v = F.active;
+      if (v && v.kind === 'ship' && v.parts.length) {
+        const B = v.bounds, ym = (B.minY + B.maxY) / 2, P = (x) => { const w = v.toWorld(x, ym, v.com.z || 0); return Render3D.project(F.camAbs.x + w.x - v.x, F.camAbs.y + w.y - v.y, F.camAbs.z + w.z - v.z); }, E = [P(B.maxX), P(B.minX)];
+        window.__ends = { on: E.every((q) => !q.behind), mg: Math.min(...E.map((q) => Math.min(q.x, innerWidth - q.x, q.y, innerHeight - q.y))), ends: E.map((q) => [Math.round(q.x), Math.round(q.y)]) };
+      }
+      return r;
+    };
+  });
+  for (const key of ['osca', 'arley']) {
+    await page.evaluate(async (key) => { await Render3D.load(); if (Flight.running) Flight.stop(); App.toBuild(); Builder.loadTemplate(key); Builder.parts = Builder.parts.filter((p) => !(p.def.weapon || p.def.ring || p.def.shape === 'tturret' || p.def.trackRadar || p.def.searchRadar)); Builder.changed(); store.set('rss.flight', null); App.launch(); }, key);
+    await page.waitForFunction((key) => Flight.running && Flight.active && Flight.active.kind === 'ship' && Flight.active.name === TEMPLATES[key].name && Flight.time > 0.6, key, { timeout: 180000 });
+    await frames(page, 3);
+    const seen = [], d = await page.evaluate(() => ({ chase: Ship.chaseFar(Flight.active, innerWidth, innerHeight), far: Ship.aimFar(Flight.active), aim: !!Flight.aimCam }));
+    let yaw = 0.5; // (CAM0's: off her quarter from astern)
+    for (const y of [0.5, 1.571, -1.571, 1.35]) {
+      if (y !== yaw) { await page.evaluate((dx) => Render3D.orbitBy(dx, 0), (yaw - y) / 0.006); yaw = y; await page.waitForTimeout(1500); await frames(page, 10); }
+      const e = await page.evaluate(() => window.__ends);
+      seen.push({ yaw: y, ...e, mg: Math.round(e.mg) });
+      if (Math.abs(y) > 1.5) await shot(page, `chase-${key}-broadside${y > 0 ? '' : '-port'}-360x640`);
+    }
+    await page.evaluate(() => Render3D.resetCamera());
+    ok(`${tag}the ${key === 'arley' ? 'destroyer' : 'Osca'}'s follow camera ${d.chase.toFixed(0)} m back (her reach ${d.far.toFixed(0)} m): bow and stern on the screen as she sets out, broadside both ways and on her quarter (${seen.map((e) => `${e.yaw}: ${e.mg} px clear`).join(', ')})`,
+      !d.aim && d.chase > d.far * 1.3 && seen.every((e) => e.on && e.mg >= 0.04 * 360), seen);
+  }
   await pageErrors(page, tag);
   await ctx.close();
 }

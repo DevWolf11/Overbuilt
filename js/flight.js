@@ -151,7 +151,7 @@ const Flight = {
 
   // The view's scale that frames a craft (planes lie on their side; a drone is small: the camera comes closer)
   naturalScale(v) {
-    if (isSea(v.kind) && typeof Ship !== 'undefined' && Ship.aimFar && typeof Render3D !== 'undefined' && Render3D.supported && !Render3D.failed && !Silly.on('retro2d')) { const H = typeof innerHeight !== 'undefined' ? innerHeight : 600; return H / 2 / Math.tan((25 * Math.PI) / 180) / Ship.aimFar(v); } // [WP12] (a ship's follow camera from her reach, the aim camera's own: a destroyer whole, a RIB close, and no jump between the two; the 2D view keeps its framing)
+    if (isSea(v.kind) && typeof Ship !== 'undefined' && Ship.chaseFar && typeof Render3D !== 'undefined' && Render3D.supported && !Render3D.failed && !Silly.on('retro2d')) { const W = typeof innerWidth !== 'undefined' ? innerWidth : 800, H = typeof innerHeight !== 'undefined' ? innerHeight : 600; return H / 2 / Math.tan((25 * Math.PI) / 180) / Ship.chaseFar(v, W, H); } // [WP12] (a ship's follow camera from her reach, the aim camera's own, or farther on a screen too narrow for it (a phone in portrait): a destroyer whole, a RIB close, eased into on her loss; the 2D view keeps its framing)
     const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
     const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w;
     const W = typeof innerWidth !== 'undefined' ? innerWidth : 800, H = typeof innerHeight !== 'undefined' ? innerHeight : 600;
@@ -2367,8 +2367,10 @@ const Flight = {
     if (this.mapMode) { if (GlobeView.active) GlobeView.zoom(f); else MapView.zoom(f, cx, cy); return; }
     // (the aim camera stands 7-30 m back, render3d.js: the scale kept to that, so no notch is lost past either end)
     const k = this.groundAim ? ((typeof App !== 'undefined' && App.H) || innerHeight) / 2 / Math.tan((25 * Math.PI) / 180) : 0;
-    const far = this.groundAim && this.active && isSea(this.active.kind) && typeof Ship !== 'undefined' ? Ship.aimFar(this.active) : 30; // ([WP12] a ship's aim camera reaches back by her length: render3d aimDist)
-    this.scale = this.groundAim ? clamp(this.scale * f, k / far, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, this.active && this.active.kind === 'drone' ? DRONE.LAUNCH.ZOOM : 80);
+    const sea = this.groundAim && this.active && isSea(this.active.kind) && typeof Ship !== 'undefined', far = sea ? Ship.aimFar(this.active) : 30; // ([WP12] a ship's aim camera reaches back by her length: render3d aimDist)
+    const s0 = sea ? Math.max(this.scale, k / far) : this.scale; // ([WP12] from where her aim camera stands: on a phone her follow camera's farther stand, Ship.chaseFar, would lose the first notch in)
+    this.scale = this.groundAim ? clamp(s0 * f, k / far, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, this.active && this.active.kind === 'drone' ? DRONE.LAUNCH.ZOOM : 80);
+    if (sea && s0 * f < k / far) this.scale = Math.min(k / far, this.naturalScale(this.active)); // ([WP12] out past her reach: back to her follow camera's own stand, so on a phone in portrait the camera her loss eases into still frames her whole)
   },
 
   toggleMap() {
