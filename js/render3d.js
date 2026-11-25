@@ -5549,7 +5549,55 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   }
   // (how far behind the pivot: the aim camera's zoom; [WP2] a ship's reaches back 1.2 of her length, up to 200 m, so
   // her own superstructure and the sea round her stay in view)
-  const aimDist = (F, v) => { const z = (H / 2) / F.scale / TANH50; if (!v || !isSea(v.kind)) return clamp(z, 7, 30); const B = v.bounds, L = Math.max(B.maxX - B.minX, B.maxY - B.minY, 10); return clamp(z, 7, clamp(1.2 * L, 30, 200)); };
+  const aimDist = (F, v) => { const z = (H / 2) / F.scale / TANH50; if (!v || !isSea(v.kind)) return clamp(z, 7, 30); return clamp(z, 7, typeof Ship !== 'undefined' ? Ship.aimFar(v) : 30); }; // ([WP12] Ship.aimFar: the same reach, Flight.zoomBy's too)
+  // [WP12] a ship's bridge eye at (x, y, z): over the ground and the carriers as camFloor has it, and over the drawn sea
+  // where it is (Ship.seaAt: the swell's own wave there, while the swell is drawn), SHIP.CAM.sea m
+  const BE = v3();
+  function bridgeFloor(F, b, x, y, z, r3) {
+    const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
+    BE.x = x; BE.y = y; BE.z = z;
+    const sea = b === EARTH && SWL.on ? Ship.seaAt(b, BE, F) : 0;
+    return b.radius + Math.max(groundAt(b, ca, gz), b === EARTH ? shipTop(ca, gz) : -Infinity, sea > -Infinity ? sea : 0) + SHIP.CAM.sea;
+  }
+  // [WP12] A ship's aim camera handing over to the follow camera (she is lost, or her guns gone) without a cut: the eye
+  // swung round her from where the aim camera stood to where the follow camera stands (its bearing round her up turned
+  // the shorter way, its height and distance eased) and the view from along the aim to her middle, over SHIP.CAM.ease s
+  // of the flight's time, up to twice that for a swing half way round (paused, it waits); both framed from her size
+  // (Ship.aimFar, Ship.chaseFar: farther on a phone in portrait), so neither jumps. Fed every frame with the camera's
+  // place (sim, from the focus) and mode; returns { x, y, z, lx, ly, lz } (the eye and where it looks, from the focus)
+  // while easing, else null. Ships only: any other craft returns null at the first test.
+  const SE = { v: null, frame: -1, t: -1, t0: 0, T: 1, sg: 1, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0, out: { x: 0, y: 0, z: 0, lx: 0, ly: 0, lz: 0 } };
+  function shipEase(F, v, b, AC, other, D, fx, fy, fz, x, y, z) {
+    if (!isSea(v.kind) || v !== F.active || typeof SHIP === 'undefined') { SE.v = null; return null; }
+    if (AC) { SE.v = v; SE.frame = frameNo; SE.t = -1; SE.ax = x; SE.ay = y; SE.az = z; SE.dx = D.x; SE.dy = D.y; SE.dz = D.z; return null; }
+    if (other || SE.v !== v) { SE.v = null; return null; }
+    // (her up at the focus; each end's height over her and its level part, and the turn between them round her up)
+    const fr = Math.hypot(fx, fy, fz) || 1, kx = fx / fr, ky = fy / fr, kz = fz / fr;
+    const av = SE.ax * kx + SE.ay * ky + SE.az * kz, ahx = SE.ax - kx * av, ahy = SE.ay - ky * av, ahz = SE.az - kz * av, ah = Math.hypot(ahx, ahy, ahz);
+    const bv = x * kx + y * ky + z * kz, bhx = x - kx * bv, bhy = y - ky * bv, bhz = z - kz * bv, bh = Math.hypot(bhx, bhy, bhz);
+    if (ah < 1e-3 || bh < 1e-3) { SE.v = null; return null; } // (one end straight over her: nothing to swing round)
+    let th = Math.atan2(kx * (ahy * bhz - ahz * bhy) + ky * (ahz * bhx - ahx * bhz) + kz * (ahx * bhy - ahy * bhx), ahx * bhx + ahy * bhy + ahz * bhz);
+    if (SE.t >= 0 && th * SE.sg < -Math.PI / 2) th += 2 * Math.PI * SE.sg; // (the way it set out, should the far end drift past half way round)
+    if (SE.t < 0) { // (the aim camera's last frame was the one before, and it gave way as she was lost or her guns went: the
+      // player's own step out of the aim view stays a cut, the follow camera answering the drag at once)
+      if (SE.frame !== frameNo - 1 || !(F.destroyed || v.fate || !(v.aimed && v.aimed.length))) { SE.v = null; return null; }
+      SE.t0 = F.time; SE.T = SHIP.CAM.ease * (1 + Math.abs(th) / Math.PI); SE.sg = th < 0 ? -1 : 1;
+    }
+    SE.t = Math.max(0, F.time - SE.t0); SE.frame = frameNo;
+    const T = SE.T;
+    if (SE.t >= T) { SE.v = null; return null; }
+    // (the aim's level way turned by e of the turn, at the eased level distance and height)
+    const e = smoothstep(0, T, SE.t), c = Math.cos(th * e), sn = Math.sin(th * e), ux = ahx / ah, uy = ahy / ah, uz = ahz / ah;
+    const rx = ux * c + (ky * uz - kz * uy) * sn, ry = uy * c + (kz * ux - kx * uz) * sn, rz = uz * c + (kx * uy - ky * ux) * sn, hl = lerp(ah, bh, e), vl = lerp(av, bv, e), O = SE.out;
+    O.x = rx * hl + kx * vl; O.y = ry * hl + ky * vl; O.z = rz * hl + kz * vl;
+    // (kept over the sea and the ground as both ends were)
+    const r = Math.hypot(fx + O.x, fy + O.y, fz + O.z), need = camFloor(b, fx + O.x, fy + O.y, fz + O.z, r, 2);
+    if (r < need) { const k = need / r; O.x = (fx + O.x) * k - fx; O.y = (fy + O.y) * k - fy; O.z = (fz + O.z) * k - fz; }
+    // (where it looks: from a point along the aim as far out as the eye stood, to her middle)
+    const da = Math.hypot(SE.ax, SE.ay, SE.az);
+    O.lx = (SE.ax + SE.dx * da) * (1 - e); O.ly = (SE.ay + SE.dy * da) * (1 - e); O.lz = (SE.az + SE.dz * da) * (1 - e);
+    return O;
+  }
   // how far from the body's centre a camera at (x, y, z), r3 out, must stay: lift over the drawn ground and the carriers
   function camFloor(b, x, y, z, r3, lift) {
     const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
@@ -5672,13 +5720,22 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     updateArena(F, b, v);
     updateNear(F, b, v); // (and then the patch waiting for its seams goes up: seamSync)
     if (!b.star) {
-      const need = camFloor(b, rx, ry, rz, r3, (AC && S.sightOn) || FP || IM ? 0.3 : 2); // (and out of the carriers; a gunner's sight, a drone's camera may sit low)
+      const brg = FP && v.kind !== 'drone' && typeof Ship !== 'undefined'; // [WP12] (a ship's bridge view: over the wave at the eye, not the highest crest anywhere, and out of her own parts)
+      const need = brg ? bridgeFloor(F, b, rx, ry, rz, r3) : camFloor(b, rx, ry, rz, r3, (AC && S.sightOn) || FP || IM ? 0.3 : 2); // (and out of the carriers; a gunner's sight, a drone's camera may sit low)
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
+      if (brg) {
+        BE.x = rx; BE.y = ry; BE.z = rz;
+        if (Ship.eyeOut(v, BE, BE)) { rx = BE.x; ry = BE.y; rz = BE.z; r3 = Math.hypot(rx, ry, rz); camAlt = r3 - R; }
+        const E = S.fpE || (S.fpE = v3()); E.x = rx; E.y = ry; E.z = rz; // (where the eye ended up: the tests')
+      }
     }
+    const EZ = shipEase(F, v, b, AC, FP || FA || !!IM, D, vx, vy, vz, rx - vx, ry - vy, rz - vz); // [WP12] (a ship's aim camera eased into the follow camera; EZ: SB is the shadow box's)
+    if (EZ) { rx = vx + EZ.x; ry = vy + EZ.y; rz = vz + EZ.z; r3 = Math.hypot(rx, ry, rz); camAlt = r3 - R; }
     toView(rx - vx, ry - vy, rz - vz, T3);
     camera.position.set(T3.x, T3.y, T3.z);
     camera.up.set(0, 1, 0);
-    if (IM) { toView(IM.look.x - rx, IM.look.y - ry, IM.look.z - rz, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    if (EZ) { toView(EZ.lx, EZ.ly, EZ.lz, T3); camera.lookAt(T3.x, T3.y, T3.z); }
+    else if (IM) { toView(IM.look.x - rx, IM.look.y - ry, IM.look.z - rz, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else if (FP) { toView(FPU.x, FPU.y, FPU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(FPD.x, FPD.y, FPD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else if (AC) { toView(D.x, D.y, D.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else if (FA) { toView(PU.x, PU.y, PU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(PD.x, PD.y, PD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
@@ -7292,6 +7349,7 @@ void main() {
       for (const v of F.vessels) {
         const e = vessels.get(v);
         if (!e || e.seen !== frameNo || !e.root.visible || v.dead || v.body !== b || v.kind === 'rocket' || !v.parts.length) continue;
+        if (v.sh && typeof Ship !== 'undefined') n = holesOf(v, e, bp, n); // [WP12] (the holes in a ship's hull)
         n = blobOf(F, v, e, b, bp, dt, n);
       }
       n = scorchOf(F, b, bp, n);
@@ -7347,6 +7405,47 @@ void main() {
     const A = kk * (Lx * Math.abs(ex.x * u.x + ex.y * u.y + ex.z * u.z) + Ly * Math.abs(ey.x * u.x + ey.y * u.y + ey.z * u.z) + Lz * Math.abs(ez.x * u.x + ez.y * u.y + ez.z * u.z));
     const Bw = kk * (Lx * Math.abs(ex.x * w.x + ex.y * w.y + ex.z * w.z) + Ly * Math.abs(ey.x * w.x + ey.y * w.y + ey.z * w.z) + Lz * Math.abs(ez.x * w.x + ez.y * w.y + ez.z * w.z));
     return decalPut(n, G, ux, uy, uz, bp, u, w, Math.max(A, 0.05), Math.max(Bw, 0.05), a, k, d);
+  }
+  // [WP12] The holes in a hull (Ship.holeMarks: each on her skin, in part space, with its outward normal; read only, the
+  // sim never reads these): a scorch round each (a blotch of the atlas, 2.2 × the hole's radius and 0.35 m more) and the
+  // hole itself dark in its middle (a soft blob, 1.1 × its radius), a patched one fainter, both held to her plating (s, c:
+  // smaller and moved in where they would cross her deck edge, her keel or her ends); laid on her skin across its
+  // normal, along her length. Within SCORCH_FAR of the camera, and never on a wreck or on one going down (the renderer
+  // moves those), so a ship nothing has holed costs a look at her hull parts' hole lists.
+  const HQ = { nx: 0, ny: 0, nz: 1 }, HP = v3(), HN = v3(), HA = v3();
+  function holesOf(v, e, bp, n) {
+    if (v.wreck || v.sink > 0 || v.sunk != null) return n;
+    const L = Ship.holeMarks(v);
+    if (!L.length) return n;
+    const r0 = Math.hypot(v.x, v.y, v.z) || 1, rs = e.rsO || 0, ox = v.x + (v.x / r0) * rs, oy = v.y + (v.y / r0) * rs, oz = v.z + (v.z / r0) * rs, c = v.com, S = v.sh;
+    if (Math.hypot(bp.x + ox - camAbs.x - CAM_A.x, bp.y + oy - camAbs.y - CAM_A.y, oz - camAbs.z - CAM_A.z) > SCORCH_FAR + (v.reach || 10)) return n;
+    v.axis(S.ax.x, S.ax.y, S.ax.z || 0, HA);
+    for (let i = 0; i < L.length; i++) {
+      const h = L[i];
+      qrot(v.q, h.x - c.x, h.y - c.y, h.z - (c.z || 0), HP);
+      v.axis(h.nx, h.ny, h.nz, HN);
+      HP.x += ox + HN.x * 0.03; HP.y += oy + HN.y * 0.03; HP.z += oz + HN.z * 0.03;
+      HQ.nx = HN.x; HQ.ny = HN.y; HQ.nz = HN.z;
+      if (!onPlane(HQ, HA, DK.u) && !onPlane(HQ, v.axis(0, 1, 0, DK.ay), DK.u)) continue;
+      across(HQ, DK.u, DK.w);
+      const d = Math.hypot(bp.x + HP.x - camAbs.x - CAM_A.x, bp.y + HP.y - camAbs.y - CAM_A.y, HP.z - camAbs.z - CAM_A.z);
+      if (d > SCORCH_FAR) continue;
+      const sc = h.s, core = h.c; // (held to her plating by Ship.holeMarks: never over her gunwale)
+      n = decalOn(n, HQ, HP, bp, DK.u, DK.w, sc, h.fix ? 0.45 : 0.8, 1 + ((((h.p.id * 7 + i * 3) % 4) + 4) % 4), d);
+      n = decalOn(n, HQ, HP, bp, DK.u, DK.w, core, h.fix ? 0.3 : 0.95, 0, d);
+    }
+    return n;
+  }
+  // one quad into the candidates as decalPut's, its centre at body-relative point P itself (on a hull's side: no ground plane
+  // to meet), its face along G's normal
+  function decalOn(n, G, P, bp, u, w, A, a, k, d) {
+    const c = DK.c[n] || (DK.c[n] = { d: 0, m: new Float64Array(16) }), m = c.m;
+    c.d = d;
+    m[0] = u.x * 2 * A; m[1] = u.y * 2 * A; m[2] = u.z * 2 * A; m[3] = a;
+    m[4] = -w.x * 2 * A; m[5] = -w.y * 2 * A; m[6] = -w.z * 2 * A; m[7] = k;
+    m[8] = G.nx; m[9] = G.ny; m[10] = G.nz; m[11] = 0;
+    m[12] = bp.x + P.x - camAbs.x; m[13] = bp.y + P.y - camAbs.y; m[14] = P.z - camAbs.z; m[15] = 1;
+    return n + 1;
   }
   // the crash sites' scorches: each dry pyre copied once (n < 0: only age and drop them)
   function scorchOf(F, b, bp, n) {
@@ -8138,7 +8237,7 @@ void main() {
     // sight closing meanwhile goes back to it, not to 50°)
     setFpv(on, fov) { S.fpvFov = on ? clamp(+fov || 50, 4, 120) : 0; setFov(S.fpvFov || 50); },
     // the drone camera's way and up as last drawn (sim; shared: copy them), for the OSD's horizon; null when it wasn't
-    fpvCam() { return S.fpvAt === frameNo ? { D: FPD, U: FPU } : null; },
+    fpvCam() { return S.fpvAt === frameNo ? { D: FPD, U: FPU, E: S.fpE || null } : null; }, // ([WP12] E: a ship's bridge eye where it ended up, body-relative)
     // how far a far ground vehicle is drawn raised (m, along the up; reseat) this frame: the aim ray meets it there
     reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
     // tests only: a vessel's model in the flight view (Parts3D.VesselMesh: .baked once a wreck is baked), or null

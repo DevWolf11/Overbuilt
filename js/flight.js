@@ -151,6 +151,7 @@ const Flight = {
 
   // The view's scale that frames a craft (planes lie on their side; a drone is small: the camera comes closer)
   naturalScale(v) {
+    if (isSea(v.kind) && typeof Ship !== 'undefined' && Ship.chaseFar && typeof Render3D !== 'undefined' && Render3D.supported && !Render3D.failed && !Silly.on('retro2d')) { const W = typeof innerWidth !== 'undefined' ? innerWidth : 800, H = typeof innerHeight !== 'undefined' ? innerHeight : 600; return H / 2 / Math.tan((25 * Math.PI) / 180) / Ship.chaseFar(v, W, H); } // [WP12] (a ship's follow camera from her reach, the aim camera's own, or farther on a screen too narrow for it (a phone in portrait): a destroyer whole, a RIB close, eased into on her loss; the 2D view keeps its framing)
     const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
     const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w;
     const W = typeof innerWidth !== 'undefined' ? innerWidth : 800, H = typeof innerHeight !== 'undefined' ? innerHeight : 600;
@@ -206,7 +207,7 @@ const Flight = {
   stop() {
     this.running = false;
     this.setFpv(false, true); this.clearImpact();
-    Sound.engine(0, 0); Sound.wind(0); Sound.buzz(0); Sound.laser(0);
+    Sound.engine(0, 0); Sound.wind(0); Sound.buzz(0); Sound.laser(0); if (Sound.sea) Sound.sea(null); // ([WP12] a ship's)
     this.aimReset();
     this.syncAwake();
   },
@@ -866,8 +867,12 @@ const Flight = {
         cand.push({ t, x, gw, k: Math.abs(t - A.t) + 60 * (n - 1) + 0.5 * Math.abs(x - W / 2) }); // (near its own place, on few lines, near the middle)
       }
       cand.sort((p, q) => p.k - q.k);
+      // ([WP12] a ship's a pixel inside the gap on each side: laid out across the whole gap, the box can land a subpixel
+      // past an obstacle's fractional edge and be thrown out, so on a 360 × 640 phone at UI size 125% her flooding line found
+      // no place beside the crew box and fell back over her hull diagram)
+      const sl = this.active && isSea(this.active.kind) ? 2 : 0;
       for (const c of cand.slice(0, 12)) {
-        put(c.t, c.x, c.gw);
+        put(c.t, c.x, c.gw - sl);
         const R = box();
         if (R && !at(R, obs) && R.b <= hi) return 'wrap';
       }
@@ -1130,7 +1135,7 @@ const Flight = {
   // aim and fire as a tank's (the Armour keys while she aims). On touch the touch line first and the keys folded away.
   shipHelp() {
     const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids), T = Controls.touch;
-    const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick is the rudder (sideways; let go and she holds her heading). The lever over it is the engine telegraph: drag it to a step, Flank at the top, Stop just under the middle, astern below; FLANK and STOP ring them at once. Right thumb: her guns as a tank\'s: FIRE, drag the view or slide on FIRE to aim, the binoculars for the sight, the shell chips and the weapon chip</span></div>';
+    const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick is the rudder (sideways; let go and she holds her heading). The lever over it is the engine telegraph: drag it to a step, Flank at the top, Stop just under the middle, astern below; FLANK and STOP ring them at once; over it HOLD (the heading hold or hand steering), DC (damage control first on anything, flooding or fires) and CIWS (her close-in guns by themselves or holding fire). Right thumb: her guns as a tank\'s: FIRE, drag the view or slide on FIRE to aim, the binoculars for the sight, the shell chips and the weapon chip</span></div>';
     return `${T ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
       <div>${P('fwd', 'back')}<span>Ring the engine telegraph a step ahead / astern (hold to keep ringing): Full astern, Half, Slow, Stop, Slow ahead, Half, Full, Flank</span></div>
       <div>${P('left', 'right')}<span>Rudder to port / starboard (let go: she holds her new heading)</span></div>
@@ -1262,6 +1267,7 @@ const Flight = {
         if (st.level > 1) haptic(25);
       }
     } else { Sound.engine(0, 0); Sound.wind(0); }
+    if (typeof Ship !== 'undefined' && (Combat.S.sea || Sound.seaOn === true)) Ship.sounds(this, rdt); // [WP12] (a ship's engines, bow wave, close-in guns, torpedoes and hits: only with one in the flight)
 
     if (!this.paused) { // (nothing changes while paused: setPaused brought these up to date)
       this.predTimer -= rdt;
@@ -2362,7 +2368,10 @@ const Flight = {
     if (this.mapMode) { if (GlobeView.active) GlobeView.zoom(f); else MapView.zoom(f, cx, cy); return; }
     // (the aim camera stands 7-30 m back, render3d.js: the scale kept to that, so no notch is lost past either end)
     const k = this.groundAim ? ((typeof App !== 'undefined' && App.H) || innerHeight) / 2 / Math.tan((25 * Math.PI) / 180) : 0;
-    this.scale = this.groundAim ? clamp(this.scale * f, k / 30, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, this.active && this.active.kind === 'drone' ? DRONE.LAUNCH.ZOOM : 80);
+    const sea = this.groundAim && this.active && isSea(this.active.kind) && typeof Ship !== 'undefined', far = sea ? Ship.aimFar(this.active) : 30; // ([WP12] a ship's aim camera reaches back by her length: render3d aimDist)
+    const s0 = sea ? Math.max(this.scale, k / far) : this.scale; // ([WP12] from where her aim camera stands: on a phone her follow camera's farther stand, Ship.chaseFar, would lose the first notch in)
+    this.scale = this.groundAim ? clamp(s0 * f, k / far, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, this.active && this.active.kind === 'drone' ? DRONE.LAUNCH.ZOOM : 80);
+    if (sea && s0 * f < k / far) this.scale = Math.min(k / far, this.naturalScale(this.active)); // ([WP12] out past her reach: back to her follow camera's own stand, so on a phone in portrait the camera her loss eases into still frames her whole)
   },
 
   toggleMap() {
@@ -2489,6 +2498,7 @@ const Flight = {
     if (isSea(v.kind)) { // (the ships update: her helm, for her first moments)
       const sh = v.sh;
       if (!sh || this.time > 30 || this.mp || this.shotYet || (sh.tel !== 0 && this.time > 12)) return '';
+      if (typeof Ship !== 'undefined' && Ship.alert(v, this)) return ''; // ([WP12] a warning takes the tip's place: on a small phone the alert line had no room beside it and lay over her hull diagram)
       if (sh.tel === 0) return T ? 'The lever on the left is her engine telegraph: push it up to ring ahead. The stick is the rudder.' : `${k('fwd')} rings the telegraph ahead a step at a time (${k('thrFull')}: flank, ${k('thrCut')}: stop), ${ad} put the rudder over.`;
       return T ? 'Let go of the stick and she holds her new heading.' : `Let go of ${ad} and she holds her new heading (${k('sHold')}: hand steering).`;
     }
@@ -2645,7 +2655,9 @@ const Flight = {
         return st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`;
       };
       const dm = v.carrier && typeof Drone !== 'undefined' ? Drone.alertText(this) : null; // (a drone from a bay: its LAST FLIGHT, its tank hit; plan I6)
+      const sw = !dm && v.sh && typeof Ship !== 'undefined' ? Ship.alert(v, this) : null; // [WP12] (a ship's: a torpedo, a missile her radar hears, a magazine fire, flooding, her list, a fire)
       if (dm) { msg = dm; crit = true; }
+      else if (sw) { msg = sw.text; crit = sw.crit; }
       else if (st && st.level > 1) { msg = struct(); crit = true; }
       else if (fire) { msg = fire.def.thrust ? 'Engine fire · throttle back or dive' : 'Fire · dive to put it out'; crit = true; }
       else if (st) msg = struct();

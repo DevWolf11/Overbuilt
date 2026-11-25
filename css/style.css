@@ -1474,3 +1474,55 @@ body.ship .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; padding-lef
 .sh-fill { position: absolute; top: 0; bottom: 0; background: var(--amber); border-radius: 3px; }
 .sh-cmd { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; border-radius: 1px; }
 .sh-ang { min-width: 54px; text-align: right; white-space: nowrap; }
+
+/* == ships: the HUD (the ships update, WP12) == */
+/* the hull diagram (ship.js hud: diagram) under the helm panel: her side, bow to the right, a cell per compartment with its
+   water, holes, fires and damage control, the sea's line; her heel and trim under it (ABANDON SHIP once she is lost, the
+   helm's lines gone); a compact strip on a phone */
+.ship-helm.lost { margin-top: 4px; }
+.ship-helm.lost > :not(.sh-hull) { display: none; }
+.ship-helm:has(.sh-hull:not([hidden])) { grid-template-columns: minmax(0, 1fr); } /* (the diagram's line never widens the panel past the flight data) */
+.sh-hull { display: grid; gap: 2px; min-width: 0; }
+.sh-cv { display: block; width: 100%; height: 44px; }
+.sh-hl { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; white-space: nowrap; font: 500 9px var(--mono); color: var(--muted); min-width: 0; overflow: hidden; }
+.sh-hl span { overflow: hidden; }
+.sh-hl .sh-warn { color: var(--amber); } /* (its own class: the page's .warn paragraph style would grow it to 12 px with a bar) */
+.sh-hl.lost { justify-content: center; color: #ff5d5d; font: 700 12px var(--display); letter-spacing: 0.1em; }
+/* (a desktop's line under the rudder: her CIWS by itself (green) or holding fire, damage control's priority (amber when set);
+   a phone's lit CIWS and DC buttons say the same, so it is a desktop's only) */
+.sh-kit { display: none; }
+body.pc .sh-kit { display: flex; gap: 10px; white-space: nowrap; font: 600 10px var(--mono); letter-spacing: 0.06em; color: var(--muted); }
+.sh-kit .on { color: #7dffb0; }
+.sh-kit .off { color: #ff8a7a; }
+.sh-kit .set { color: var(--amber); }
+.sh-kit span:empty { display: none; }
+@media (max-width: 760px) { .sh-cv { height: 20px; } }
+@media (max-height: 500px) { .sh-cv { height: 14px; } }
+/* her touch buttons (ship.js hud: btns): HOLD, DC (its priority under it) and CIWS, in a row over the telegraph lever;
+   only in the ship layer, never on a desktop (the key hints say them); lit while on. Their row stands on the lever's foot
+   and is exactly as tall as its track (the track's own height, its vh over --ui-scale: inside the HUD's zoom a vh isn't
+   scaled, and with the plain 14vh the row sat on the lever at UI size 60%), the buttons 8 px over its top */
+.ship-btns { position: absolute; left: var(--gut-l); bottom: calc(140px + var(--safe-b)); height: clamp(96px, calc(14vh / var(--ui-scale)), 130px); display: none; gap: 6px; align-items: flex-start; pointer-events: none !important; }
+body.ship:not(.pc) .ship-btns { display: flex; }
+.ship-btns .g-ship { position: relative; pointer-events: auto; margin-top: -52px; }
+.g-ship { display: none; width: 44px; height: 44px; font-size: 11px; letter-spacing: 0.04em; padding: 0; line-height: 1; }
+body.ship:not(.pc) .g-ship:not([hidden]) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.g-ship .sb-sub { font: 600 8px var(--mono); letter-spacing: 0; color: var(--muted); }
+/* (lit: the tint over the button's own dark panel, so a lit HOLD still reads over a bright sea or sky rather than looking switched off) */
+.g-ship[aria-pressed="true"] { background: linear-gradient(rgba(125, 255, 176, 0.2), rgba(125, 255, 176, 0.2)), var(--panel); border-color: #7dffb0; color: #b9ffd4; }
+#btn-sdc[aria-pressed="true"] { background: linear-gradient(rgba(255, 181, 71, 0.22), rgba(255, 181, 71, 0.22)), var(--panel); border-color: var(--amber); color: var(--amber); }
+#btn-sdc[aria-pressed="true"] .sb-sub { color: var(--amber); }
+@media (max-width: 760px) { .ship-btns { bottom: calc(150px + var(--safe-b)); } } /* (8 px over the lever: the radar scope's place under the diagram stays clear on a 360 × 640 phone) */
+/* (with stages left the lever stands higher, a Stage pill under it, as the layout editor always shows it: the row goes
+   up with it, so it never sits on the lever) */
+body.ship.g-stages .ship-btns { bottom: calc(198px + var(--safe-b)); }
+@media (max-width: 760px) { body.ship.g-stages .ship-btns { bottom: calc(266px + var(--safe-b)); } }
+@media (max-height: 500px) {
+  /* (a phone on its side: the lever beside the stick at the bottom, as every ground vehicle's in landscape and a wider
+     phone's, so the row over it stands clear of it: WP3's max-width: 760px lift over the stick was for portrait) */
+  body.ship.g-thrust:not(.g-stages) .throttle-box { bottom: calc(14px + var(--safe-b)); }
+  .g-ship { width: 42px; height: 42px; }
+  .ship-btns, body.ship.g-stages .ship-btns { left: calc(var(--gut-l) + 170px); bottom: calc(14px + var(--safe-b)); }
+  .ship-btns .g-ship { margin-top: -50px; }
+}
+body.ctl-edit.ship :is(#btn-shold, #btn-sdc, #btn-sciws) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }

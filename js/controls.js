@@ -224,6 +224,9 @@ const Controls = (() => {
     sight: ['#btn-sight', 'Sight', 'ground'], mg: ['#btn-mg', 'Machine guns', 'ground'], lock: ['#btn-lock', 'Radar lock', 'ground'], ammo: ['#ammo-stack', 'Shell chips', 'ground'],
     range: ['#btn-range', 'Sight\'s range', 'ground'], gmap: ['#gmap', 'Minimap', 'ground'], hints: ['#key-hints', 'Key hints', 'both'],
     radar: ['#btn-radar', 'Radar', 'air'], drone: ['#btn-drone', 'Drone', 'ground'],
+    // [WP12] a ship's own (the ships update: a ship sails with the ground HUD and its ship layer, body.ship; the style
+    // sheet shows these only there, so a tank's HUD, its fit and its editor never meet them)
+    hold: ['#btn-shold', 'Heading hold', 'ground'], dc: ['#btn-sdc', 'Damage control', 'ground'], ciws: ['#btn-sciws', 'CIWS', 'ground'],
   };
   const has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
   // the panels the controls must stay clear of when the HUD grows (fit)
@@ -479,7 +482,7 @@ const Controls = (() => {
       const dk = !!v && !!v.docks && v.docks.length > 0; // (a drone bay aboard: U launches)
       const sea = !!v && isSea(v.kind), gm = F.groundAim ? `g${Aim.realistic() ? 'r' : ''}${Aim.kit(v).track ? 'l' : ''}${dk ? 'u' : ''}` : '';
       // (the ships update: a ship's helm, its guns as a tank's when it aims, hold or hand steering, the view, its CIWS)
-      const mode = !v ? '' : sea ? `s${gm}${v.sas === 'manual' ? 'm' : ''}${F.bridge ? 'b' : ''}${v.ciws && v.ciws.length ? 'c' : ''}` : F.groundAim ? gm : F._bodyGround ? `d${dk ? 'u' : ''}` : v.kind === 'plane' ? (F.flyAim ? 'pa' : 'p') + (v.hasFlaps || v.hasRetract ? 'f' : '')
+      const mode = !v ? '' : sea ? `s${gm}${v.sas === 'manual' ? 'm' : ''}${F.bridge ? 'b' : ''}${v.ciws && v.ciws.length ? (v.sh && v.sh.ciwsOn === false ? 'C' : 'c') : ''}` : F.groundAim ? gm : F._bodyGround ? `d${dk ? 'u' : ''}` : v.kind === 'plane' ? (F.flyAim ? 'pa' : 'p') + (v.hasFlaps || v.hasRetract ? 'f' : '')
         : v.kind === 'drone' ? `D${v.aircraft ? 'w' : ''}${v.sas}${F.fpv ? 'f' : ''}${v.carrier ? 'b' : ''}${v.dl && v.dl.lockOn ? 'L' : ''}${v.dr && v.dr.cam ? 'c' : ''}${F.fpv && v.dr && v.dr.cam && v.dr.cam.def.drone.cam.gimbal ? 'g' : ''}` : v.kind;
       const rdr = !!(v && !F.destroyed && typeof Radar !== 'undefined' && Radar.aboard(v)); // (a radar aboard: its keys)
       const key = `${mode}|${weap}|${cm}|${cat}|${!!F.mp}|${open}|${Keys.version}|${rdr}${v && v.kind === 'drone' ? '|' + Settings.get('droneStick') : ''}${dk && typeof Drone !== 'undefined' ? '|' + Drone.left(v) + (v.drone && !v.drone.dead ? 'u' : '') : ''}`;
@@ -503,7 +506,7 @@ const Controls = (() => {
           r.push(row(f('camera'), 'Camera'), row(f('map'), 'Map'));
         }
         if (cm) r.push(row(f('cm'), 'Decoys'));
-        if (mode.includes('c')) r.push(row(f('sCiws'), 'CIWS auto'));
+        if (/[cC]/.test(mode)) r.push(row(f('sCiws'), mode.includes('C') ? 'CIWS auto' : 'CIWS hold fire')); // ([WP12] what the key does now, as the hold key's: the helm panel says what is set)
         r.push(row(f('sDc'), 'Damage control'), row(f('sView'), F.bridge ? 'Chase view' : 'Bridge view'));
         if (!F.mp && !F.groundAim) r.push(row(f('warpDown', 'warpUp'), 'Warp'));
       } else if (F.groundAim) { // (aiming a ground vehicle's guns)

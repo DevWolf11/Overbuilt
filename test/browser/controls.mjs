@@ -92,6 +92,7 @@ const layout = () => {
     fire: rect('#btn-fire'), cm: rect('#btn-cm'), chip: rect('#btn-weapon'), catapult: rect('#btn-catapult'), throttle: rect('#flight-ui .throttle-box'),
     stage: ground ? rect('#btn-stage') : rect('#flight-ui .stage-box'), telemetry: rect('#flight-ui .telemetry'), topRight: rect('#flight-ui .flight-top-right'), warp: rect('#warp'), keys: rect('#key-hints'),
     sight: rect('#btn-sight'), mg: rect('#btn-mg'), lock: rect('#btn-lock'), range: rect('#btn-range'), shells: rect('#ammo-stack'), map: rect('#gmap'), gai: rect('#gai-bar'),
+    hold: rect('#btn-shold'), dc: rect('#btn-sdc'), ciws: rect('#btn-sciws'), // ([WP12] a ship's own touch buttons)
     diagram: ground && Flight.groundAim && P.diag ? { l: P.diag.x, t: P.diag.y, r: P.diag.x + P.diag.w, b: P.diag.y + P.diag.h } : null };
   if (!ground) document.querySelectorAll('#sas-bar [data-sas]').forEach((x) => { const r = rect(x); if (r) items['sas-' + x.dataset.sas] = r; });
   let circle = null;
@@ -227,17 +228,43 @@ for (const vp of part(2) ? SIZES : []) {
     await fly(page, key, sas);
     await page.waitForTimeout(1300); // (the ground HUD's places: looked up once a second)
     await frames(page, 2);
+    if (what === 'a ship') await page.evaluate(() => { const c = document.querySelector('#btn-sciws'); window.__ciwsWas = c.hidden; c.hidden = false; }); // ([WP12] her CIWS button measured too: the Cyclon carries none, a destroyer does)
     const L = await page.evaluate(layout);
+    if (what === 'a ship') await page.evaluate(() => { document.querySelector('#btn-sciws').hidden = window.__ciwsWas; });
     zs[tag] = L.z;
-    const need = what === 'a ship' ? (L.pc ? ['telemetry', 'keys', 'throttle'] : ['stick', 'throttle', 'telemetry', 'map']) : L.pc ? ['telemetry', 'keys'] : what === 'a tank' ? ['stick', 'fire', 'sight', 'map', 'shells'] : what === 'a rocket on the pad' ? ['stick', 'throttle', 'stage', 'sas-hold'] : ['stick', 'fire', 'throttle', 'stage', 'sas-aim'];
+    const need = what === 'a ship' ? (L.pc ? ['telemetry', 'keys', 'throttle'] : ['stick', 'throttle', 'telemetry', 'map', 'hold', 'dc', 'ciws']) : L.pc ? ['telemetry', 'keys'] : what === 'a tank' ? ['stick', 'fire', 'sight', 'map', 'shells'] : what === 'a rocket on the pad' ? ['stick', 'throttle', 'stage', 'sas-hold'] : ['stick', 'fire', 'throttle', 'stage', 'sas-aim'];
     judge(`${tag}, ${what}`, L, need);
     if (what === 'a ship') { // (the ships update: her helm panel inside the flight data, on the screen)
       const hp = await page.evaluate(() => { const h = document.querySelector('#ship-helm').getBoundingClientRect(), t = document.querySelector('#flight-ui .telemetry').getBoundingClientRect(); return { h: h.height, in: h.height > 20 && h.left >= t.left - 0.5 && h.right <= t.right + 0.5 && h.bottom <= t.bottom + 0.5 && h.bottom <= innerHeight }; });
       ok(`${tag}, a ship: her helm panel shown inside the flight data`, hp.in, hp);
+      // [WP12] her hull diagram under it, inside the flight data and on the screen; her touch buttons only on touch
+      const hd = await page.evaluate(() => { const c = document.querySelector('#ship-helm .sh-cv').getBoundingClientRect(), t = document.querySelector('#flight-ui .telemetry').getBoundingClientRect(), bt = [...document.querySelectorAll('.g-ship')].filter((b) => b.getBoundingClientRect().width > 0).length;
+        return { w: Math.round(c.width), h: Math.round(c.height), in: c.height > 10 && c.left >= t.left - 0.5 && c.right <= t.right + 0.5 && c.bottom <= t.bottom + 0.5 && t.bottom <= innerHeight, bt, pc: document.body.classList.contains('pc') }; });
+      ok(`${tag}, a ship: her hull diagram inside the flight data (${hd.w}×${hd.h}), ${hd.pc ? 'no touch buttons on a desktop' : 'HOLD and DC on the screen'}`, hd.in && (hd.pc ? hd.bt === 0 : hd.bt >= 2), hd);
     }
     const name = `${what === 'a plane in Aim' ? 'aim' : what === 'a plane in Off' ? 'off' : what === 'a tank' ? 'tank' : what === 'a ship' ? 'ship' : 'rocket'}-${vp[0]}x${vp[1]}`;
     if (vp[0] === 390 || vp[0] === 768 || vp[0] === 1280 || vp[0] === 1920 || vp[0] === 360 || vp[0] === 844 || vp[0] === 430 || vp[0] === 375) await shot(page, name);
   }
+  await pageErrors(page, tag + ' ');
+  await ctx.close();
+}
+// [WP12 fix] a small phone on its side (both its max-width: 760px and its max-height: 500px rules): a ship's lever beside
+// the stick at the bottom, her HOLD, DC and CIWS over it, clear of it and of everything (they sat on its foot and STOP when
+// the portrait rule lifted the lever), and a finger on STOP rings Stop
+for (const vp of part(2) ? [[740, 360, true], [667, 375, true], [640, 360, true]] : []) {
+  const tag = `${vp[0]}×${vp[1]}`, { ctx, page } = await open(vp, {}, tag + ' ');
+  await fly(page, 'cyclon');
+  await page.waitForTimeout(1300); await frames(page, 2);
+  await page.evaluate(() => { const c = document.querySelector('#btn-sciws'); window.__ciwsWas = c.hidden; c.hidden = false; });
+  const L = await page.evaluate(layout);
+  const st = await page.evaluate(() => { const r = document.querySelector('#btn-tcut').getBoundingClientRect(), e = document.elementFromPoint((r.left + r.right) / 2, r.bottom - 4); return e && e.closest('#btn-tcut') ? 'STOP' : e ? e.id || e.className : null; });
+  await shot(page, `ship-land-${vp[0]}x${vp[1]}`);
+  await page.evaluate(() => { document.querySelector('#btn-sciws').hidden = window.__ciwsWas; });
+  // (the time-warp row lies on the minimap at these sizes whatever the craft, on the base too: judged apart, against hers)
+  const { warp, ...rest } = L.items;
+  judge(`${tag}, a ship on a small phone on its side (the time-warp row apart)`, { ...L, items: rest }, ['stick', 'throttle', 'telemetry', 'map', 'hold', 'dc', 'ciws']);
+  ok(`${tag}, a ship: the time-warp row clear of her lever and her HOLD, DC and CIWS`, !!warp && !['throttle', 'hold', 'dc', 'ciws'].some((k) => meets(warp, L.items[k])), { warp });
+  ok(`${tag}, a ship: a finger on STOP's foot gets STOP (${st})`, st === 'STOP', st);
   await pageErrors(page, tag + ' ');
   await ctx.close();
 }
@@ -572,6 +599,24 @@ if (part(6)) {
     judge(`390×844, a ship, UI size ${v * 100}% (scale ${await page.evaluate(() => Controls.z)})`, await page.evaluate(layout), ['stick', 'throttle', 'telemetry', 'map']);
   }
   await shot(page, 'uisize150-ship-390x844');
+  // [WP12] the layout editor from her pause menu: HOLD, DC (and CIWS) among the controls it moves, saved with Armour's
+  {
+    await set(1); await page.waitForTimeout(400);
+    await page.evaluate(() => Controls.edit());
+    await frames(page, 2);
+    // (the editor shows every Armour control, a Stage pill too, which stands the lever higher: her buttons go up with it)
+    const lv = await page.evaluate(() => { const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width }; }, T = r('#flight-ui .throttle-box');
+      return { T, on: ['#btn-shold', '#btn-sdc', '#btn-sciws'].map(r).filter((B) => B.w > 0 && B.l < T.r && B.r > T.l && B.t < T.b && B.b > T.t).length, above: ['#btn-shold', '#btn-sdc'].map(r).every((B) => B.w > 0 && B.b <= T.t && T.t - B.b < 20) }; });
+    ok('a ship\'s layout editor: her HOLD, DC and CIWS stand over the lever as in flight, not on it (the editor\'s Stage pill raises the lever)', lv.on === 0 && lv.above, lv);
+    await page.evaluate(() => document.querySelector('#ctl-edit-bar .ce-head .icon-only').click()); await frames(page, 2); // (the bar to the top, ⇅: in the middle it lies over the raised lever and the row)
+    const hb = await page.evaluate(() => { const r = document.querySelector('#btn-shold').getBoundingClientRect(); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, w: r.width }; });
+    await T.down(4, hb.x, hb.y); for (let i = 1; i <= 5; i++) await T.move(4, hb.x + i * 8, hb.y - i * 6); await T.up(4); await frames(page, 2);
+    const ed = await page.evaluate(() => { const r = document.querySelector('#btn-shold').getBoundingClientRect(), L = JSON.parse(localStorage.getItem('rss.layout') || '{}'); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, sel: document.querySelector('#ctl-edit-bar .ce-sel b') && document.querySelector('#ctl-edit-bar .ce-sel b').textContent, saved: L.portrait && L.portrait.ground && L.portrait.ground.hold }; });
+    ok('a ship\'s layout editor: HOLD is one of its controls (chosen, dragged with the finger, saved with Armour\'s layout)', hb.w > 0 && ed.sel === 'Heading hold' && Math.abs(ed.x - (hb.x + 40)) < 3 && Math.abs(ed.y - (hb.y - 30)) < 3 && !!ed.saved, { hb, ed });
+    await shot(page, 'editor-ship-390x844');
+    await page.evaluate(() => { const b = document.querySelector('#ctl-edit-bar .btn.danger'); b.click(); b.click(); document.querySelector('#ctl-edit-bar .btn.primary').click(); });
+    await frames(page, 2);
+  }
   // a phone on its side: flaps and gear used to meet the flight data at 150%
   await set(1.5); await fly(page, 'fs16');
   await page.setViewportSize({ width: 844, height: 390 }); await page.evaluate(() => Controls.resize());
