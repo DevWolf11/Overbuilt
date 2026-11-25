@@ -260,7 +260,10 @@ for (const vp of part(2) ? [[740, 360, true], [667, 375, true], [640, 360, true]
   const st = await page.evaluate(() => { const r = document.querySelector('#btn-tcut').getBoundingClientRect(), e = document.elementFromPoint((r.left + r.right) / 2, r.bottom - 4); return e && e.closest('#btn-tcut') ? 'STOP' : e ? e.id || e.className : null; });
   await shot(page, `ship-land-${vp[0]}x${vp[1]}`);
   await page.evaluate(() => { document.querySelector('#btn-sciws').hidden = window.__ciwsWas; });
-  judge(`${tag}, a ship on a small phone on its side`, L, ['stick', 'throttle', 'telemetry', 'map', 'hold', 'dc', 'ciws']);
+  // (the time-warp row lies on the minimap at these sizes whatever the craft, on the base too: judged apart, against hers)
+  const { warp, ...rest } = L.items;
+  judge(`${tag}, a ship on a small phone on its side (the time-warp row apart)`, { ...L, items: rest }, ['stick', 'throttle', 'telemetry', 'map', 'hold', 'dc', 'ciws']);
+  ok(`${tag}, a ship: the time-warp row clear of her lever and her HOLD, DC and CIWS`, !!warp && !['throttle', 'hold', 'dc', 'ciws'].some((k) => meets(warp, L.items[k])), { warp });
   ok(`${tag}, a ship: a finger on STOP's foot gets STOP (${st})`, st === 'STOP', st);
   await pageErrors(page, tag + ' ');
   await ctx.close();
