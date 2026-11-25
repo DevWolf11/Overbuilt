@@ -795,11 +795,12 @@ for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, fa
     await loop('zodiak', () => Sound.sea({ petrol: 1, rpm: 1, hiss: 1, size: 0.08 }));
     await loop('ciws', () => Sound.sea({ ciws: 1 }));
     await loop('arleyCiws', () => Sound.sea({ turbine: 1, rpm: 1, hiss: 1, ciws: 1, size: 1 }));
+    await loop('every', () => Sound.sea({ diesel: 1, turbine: 1, rpm: 1, hiss: 1, gurgle: 1, ciws: 1, size: 1 }));
     Sound.ctx = null; Sound._sea = null;
     return out;
   });
-  ok(`[WP12] her sounds as loud as the game's others: a destroyer at flank ${lv.arley.db} dB, a Cyclon ${lv.cyclon.db}, a RIB ${lv.zodiak.db}, a close-in gun ${lv.ciws.db}, a tank at full ${lv.tank.db} (no clipping: ${lv.arleyCiws.pk})`,
-    lv.arley.db >= lv.tank.db - 3 && lv.cyclon.db >= lv.tank.db - 4 && lv.zodiak.db >= lv.tank.db - 8 && lv.zodiak.db < lv.arley.db && lv.ciws.db >= lv.tank.db - 3 && lv.arleyCiws.pk < 1, lv);
+  ok(`[WP12] her sounds as loud as the game's others: a destroyer at flank ${lv.arley.db} dB, a Cyclon ${lv.cyclon.db}, a RIB ${lv.zodiak.db}, a close-in gun ${lv.ciws.db}, a tank at full ${lv.tank.db} (no clipping: ${lv.arleyCiws.pk} with her gun firing, ${lv.every.pk} every loop at once)`,
+    lv.arley.db >= lv.tank.db - 3 && lv.cyclon.db >= lv.tank.db - 4 && lv.zodiak.db >= lv.tank.db - 8 && lv.zodiak.db < lv.arley.db && lv.ciws.db >= lv.tank.db - 3 && lv.arleyCiws.pk < 1 && lv.every.pk < 1, lv);
   await pageErrors(page, tag);
   await ctx.close();
 }

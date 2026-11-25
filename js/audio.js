@@ -232,11 +232,11 @@ const Sound = {
   // spool), an outboard's two-stroke buzz, the bow wave's hiss with her speed, flooding's gurgle (the bridge view), a
   // close-in gun's ripping buzz while it fires. size (0..1: a RIB's 330 kW to a destroyer's 80 MW) makes the engines
   // louder and lower. At full, a destroyer at flank (about -18 dB) is as present as a tank at full power (-17), a RIB a
-  // little under it (-20), and the close-in gun beside the view as loud as either; with both her loops and the gun at full
-  // the mix still peaks under 1 (test/browser/ship-flight.mjs measures them).
+  // little under it (-20), and the close-in gun beside the view as loud as either; with both her loops and the gun at full,
+  // or every loop at once, the mix still peaks under 1 (test/browser/ship-flight.mjs measures them).
   // seaOn: any of them still playing (Flight.update keeps asking while so).
   seaOn: false,
-  SEA: { diesel: 1.6, turbine: 1.5, whine: 0.11, petrol: 0.24, hiss: 0.25, gurgle: 1.2, ciws: 1.0, gun: 0.4 }, // (each voice's gain at full)
+  SEA: { diesel: 1.6, turbine: 1.5, whine: 0.11, petrol: 0.24, hiss: 0.25, gurgle: 1.2, ciws: 1.0, gun: 0.4, sum: 2.6 }, // (each voice's gain at full; sum: theirs together at most)
   sea(L) {
     if (!this.ctx) { this.seaOn = false; return; }
     const ctx = this.ctx, G = this._sea || (this._sea = {}), on = !!L, K = this.SEA;
@@ -244,6 +244,11 @@ const Sound = {
     G.sz = sz;
     const lv = (k, m) => (on ? clamp(+L[k] || 0, 0, 1) * m : 0);
     const want = { diesel: lv('diesel', big), turbine: lv('turbine', big), petrol: lv('petrol', big), hiss: lv('hiss', 1), gurgle: lv('gurgle', 1), ciws: lv('ciws', 1) }, rpm = on ? clamp(+L.rpm || 0, 0, 1) : 0;
+    // (their gains together held to 2.6, a little under a destroyer's at flank with her gun firing (2.75): that peaked at
+    // 0.93, and a CODAG at flank, flooding, the gun going, all of them at once, would clip)
+    let sum = 0;
+    for (const k in want) sum += want[k] * K[k];
+    if (sum > K.sum) for (const k in want) want[k] *= K.sum / sum;
     // (white noise for the hiss and the gun: the shared brown noise has little above a kilohertz)
     const white = () => { if (!G.white) { const n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; G.white = b; } return G.white; };
     const out = (vol) => { const g = ctx.createGain(); g.gain.value = 0; const m = ctx.createGain(); m.gain.value = vol; g.connect(m); m.connect(this.master); return g; };
