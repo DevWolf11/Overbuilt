@@ -9,19 +9,21 @@
 // 'plane' and 'rocket' (the plane's autopilot keys, and every other craft's), 'drone' (a drone's own: the big update),
 // 'ground' (aiming a ground vehicle: these take over from the flight keys while it aims, as they always did), 'build'
 // (the hangar), 'bay' (the drone key: live on every craft and read before a ground vehicle's own keys, so it clashes
-// with every flight context, 'ground' included). Two actions clash when they share a key and can be live together: the
-// same context, 'any' beside 'plane', 'rocket' or 'drone', or 'bay' beside any of the flight contexts.
+// with every flight context, 'ground' included), 'ship' (a ship's own: the ships update; while a ship aims its guns the
+// 'ground' keys are live beside them). Two actions clash when they share a key and can be live together: the same
+// context, 'any' beside 'plane', 'rocket', 'drone' or 'ship', 'bay' beside any of the flight contexts, or 'ship' beside
+// 'ground'.
 const KEY_ACTIONS = [
-  ['fwd', 'Flight', 'any', 'Pitch down · drive forward', ['KeyW', 'ArrowUp']],
-  ['back', 'Flight', 'any', 'Pitch up · reverse', ['KeyS', 'ArrowDown']],
-  ['left', 'Flight', 'any', 'Turn, roll or steer left', ['KeyA', 'ArrowLeft']],
-  ['right', 'Flight', 'any', 'Turn, roll or steer right', ['KeyD', 'ArrowRight']],
+  ['fwd', 'Flight', 'any', 'Pitch down · drive forward · ships: the telegraph a step ahead', ['KeyW', 'ArrowUp']],
+  ['back', 'Flight', 'any', 'Pitch up · reverse · ships: the telegraph a step astern', ['KeyS', 'ArrowDown']],
+  ['left', 'Flight', 'any', 'Turn, roll or steer left · ships: rudder to port', ['KeyA', 'ArrowLeft']],
+  ['right', 'Flight', 'any', 'Turn, roll or steer right · ships: rudder to starboard', ['KeyD', 'ArrowRight']],
   ['rollL', 'Flight', 'any', 'Rockets roll left · planes and helicopters yaw left · drones slide left', ['KeyQ']],
   ['rollR', 'Flight', 'any', 'Rockets roll right · planes and helicopters yaw right · drones slide right', ['KeyE']],
   ['thrUp', 'Flight', 'any', 'Throttle up (hold) · drones: climb', ['Shift', 'PageUp']],
   ['thrDown', 'Flight', 'any', 'Throttle down (hold) · drones: descend', ['Control', 'PageDown']],
-  ['thrFull', 'Flight', 'any', 'Full throttle', ['KeyZ']],
-  ['thrCut', 'Flight', 'any', 'Cut the throttle', ['KeyX']],
+  ['thrFull', 'Flight', 'any', 'Full throttle · ships: flank speed', ['KeyZ']],
+  ['thrCut', 'Flight', 'any', 'Cut the throttle · ships: all stop', ['KeyX']],
   ['stage', 'Flight', 'any', 'Next stage', ['Space']],
   ['brake', 'Flight', 'any', 'Brake (hold)', ['KeyB']],
   ['map', 'Flight', 'any', 'Map', ['KeyM']],
@@ -70,6 +72,12 @@ const KEY_ACTIONS = [
   ['dLand', 'Drones', 'drone', 'Drone: land here', ['Digit4']],
   ['dLock', 'Drones', 'drone', 'Drone: lock on to the vehicle in the middle of the picture and fly the attack (again, or any stick: let go)', ['Digit5']],
   ['dThermal', 'Drones', 'drone', 'Drone camera: thermal on or off (gimbal)', ['KeyJ']],
+  // (the ships update: the helm is the flight keys, W/S the telegraph a step at a time, A/D the rudder; these four are a
+  // ship's own, live while a ship is sailed. 5-7 sit past the shell keys 1-4, which are live with them while a ship aims)
+  ['sHold', 'Ships', 'ship', 'Ships: hold the heading when you let go of the rudder (on/off)', ['Digit5']],
+  ['sCiws', 'Ships', 'ship', 'Ships: CIWS and point defence fire by themselves (on/off)', ['Digit6']],
+  ['sDc', 'Ships', 'ship', 'Ships: damage control first on: anything, flooding, fires', ['Digit7']],
+  ['sView', 'Ships', 'ship', 'Ships: bridge view or chase view', ['KeyH']],
   ['fire', 'Weapons', 'any', 'Fire (hold)', ['KeyV']],
   ['weapon', 'Weapons', 'any', 'Change weapon (with Shift: back)', ['Tab']],
   ['cm', 'Weapons', 'any', 'Flares, chaff or smoke', ['KeyK']],
@@ -97,7 +105,7 @@ const Keys = (() => {
     Backspace: 'Backspace', Delete: 'Del', Escape: 'Esc', Comma: ',', Period: '.', Slash: '/', Backslash: '\\', IntlBackslash: '\\', Semicolon: ';', Quote: '\'', BracketLeft: '[', BracketRight: ']',
     Minus: '-', Equal: '=', Backquote: '`', PageUp: 'PgUp', PageDown: 'PgDn', Home: 'Home', End: 'End', Insert: 'Ins', CapsLock: 'Caps', ContextMenu: 'Menu',
     NumpadAdd: 'Num +', NumpadSubtract: 'Num −', NumpadMultiply: 'Num *', NumpadDivide: 'Num /', NumpadDecimal: 'Num .', NumpadEnter: 'Num Enter' };
-  const GROUPS = ['Flight', 'Planes', 'Rockets', 'Weapons', 'Camera', 'Armour', 'Drones', 'Multiplayer', 'Builder'];
+  const GROUPS = ['Flight', 'Planes', 'Rockets', 'Weapons', 'Camera', 'Armour', 'Drones', 'Ships', 'Multiplayer', 'Builder'];
   const DEF = {}, INFO = {};
   for (const [id, group, ctx, label, def] of KEY_ACTIONS) { DEF[id] = def.slice(); INFO[id] = { id, group, ctx, label }; }
   const has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
@@ -113,7 +121,7 @@ const Keys = (() => {
   }
   // Rows added after keys could be rebound (PR #40): a player may have given their default key to another action before
   // the row existed. A new row's default gives way to the player's own key (below). Add every later row here.
-  const LATE = ['radarNext', 'radarPower', 'drone', 'dView', 'dLevel', 'dAcro', 'dHome', 'dLand', 'dThermal', 'dLock'];
+  const LATE = ['radarNext', 'radarPower', 'drone', 'dView', 'dLevel', 'dAcro', 'dHome', 'dLand', 'dThermal', 'dLock', 'sHold', 'sCiws', 'sDc', 'sView'];
   // the player's own keys from rss.keys: only actions that exist, at most two keys each, real key codes (never Esc)
   function clean(raw) {
     const out = {}, own = raw && typeof raw === 'object' ? raw : null;
@@ -138,8 +146,10 @@ const Keys = (() => {
     for (const id in DEF) if (bind[id].join() !== DEF[id].join()) diff[id] = bind[id].slice();
     store.set('rss.keys', diff);
   }
-  const clash = (a, b) => a === b || (a === 'any' && (b === 'plane' || b === 'rocket' || b === 'drone')) || (b === 'any' && (a === 'plane' || a === 'rocket' || a === 'drone'))
-    || (a === 'bay' && b !== 'build') || (b === 'bay' && a !== 'build'); // (the drone key is read first, whatever the craft: P4-OF-4)
+  const AIRS = ['plane', 'rocket', 'drone', 'ship'];
+  const clash = (a, b) => a === b || (a === 'any' && AIRS.includes(b)) || (b === 'any' && AIRS.includes(a))
+    || (a === 'bay' && b !== 'build') || (b === 'bay' && a !== 'build') // (the drone key is read first, whatever the craft: P4-OF-4)
+    || (a === 'ship' && b === 'ground') || (b === 'ship' && a === 'ground'); // (the ships update: a ship's guns aim as a tank's, the Armour keys live beside the ship's)
   const name = (c) => NAMES[c] || (/^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit\d$/.test(c) ? c.slice(5) : /^Numpad\d$/.test(c) ? `Num ${c.slice(6)}` : c);
   const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
   const kb = (c) => `<kbd>${esc(name(c))}</kbd>`;
@@ -214,10 +224,13 @@ const Controls = (() => {
     sight: ['#btn-sight', 'Sight', 'ground'], mg: ['#btn-mg', 'Machine guns', 'ground'], lock: ['#btn-lock', 'Radar lock', 'ground'], ammo: ['#ammo-stack', 'Shell chips', 'ground'],
     range: ['#btn-range', 'Sight\'s range', 'ground'], gmap: ['#gmap', 'Minimap', 'ground'], hints: ['#key-hints', 'Key hints', 'both'],
     radar: ['#btn-radar', 'Radar', 'air'], drone: ['#btn-drone', 'Drone', 'ground'],
+    // [WP12] a ship's own (the ships update: a ship sails with the ground HUD and its ship layer, body.ship; the style
+    // sheet shows these only there, so a tank's HUD, its fit and its editor never meet them)
+    hold: ['#btn-shold', 'Heading hold', 'ground'], dc: ['#btn-sdc', 'Damage control', 'ground'], ciws: ['#btn-sciws', 'CIWS', 'ground'],
   };
   const has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
   // the panels the controls must stay clear of when the HUD grows (fit)
-  const PANELS = ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar'];
+  const PANELS = ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar', '#naval-bar']; // ([WP10] the Naval Range's bar)
   const S = {
     z: 1, // the HUD's scale (--ui-scale): the screen's own times UI size, held to what fits (fit)
     want: 1, nat: 1, // the scale UI size asks for, and the screen's own (UI size 100%)
@@ -467,7 +480,9 @@ const Controls = (() => {
       const ws = v && !F.destroyed ? (wsNow !== undefined ? wsNow : Combat.status(v)) : null, cat = !!(F.catapult && F.catapult.state === 'hold');
       const weap = !!ws && !ws.cmOnly, cm = !!ws && (ws.flares > 0 || ws.chaff > 0 || ws.smoke > 0);
       const dk = !!v && !!v.docks && v.docks.length > 0; // (a drone bay aboard: U launches)
-      const mode = !v ? '' : F.groundAim ? `g${Aim.realistic() ? 'r' : ''}${Aim.kit(v).track ? 'l' : ''}${dk ? 'u' : ''}` : F._bodyGround ? `d${dk ? 'u' : ''}` : v.kind === 'plane' ? (F.flyAim ? 'pa' : 'p') + (v.hasFlaps || v.hasRetract ? 'f' : '')
+      const sea = !!v && isSea(v.kind), gm = F.groundAim ? `g${Aim.realistic() ? 'r' : ''}${Aim.kit(v).track ? 'l' : ''}${dk ? 'u' : ''}` : '';
+      // (the ships update: a ship's helm, its guns as a tank's when it aims, hold or hand steering, the view, its CIWS)
+      const mode = !v ? '' : sea ? `s${gm}${v.sas === 'manual' ? 'm' : ''}${F.bridge ? 'b' : ''}${v.ciws && v.ciws.length ? (v.sh && v.sh.ciwsOn === false ? 'C' : 'c') : ''}` : F.groundAim ? gm : F._bodyGround ? `d${dk ? 'u' : ''}` : v.kind === 'plane' ? (F.flyAim ? 'pa' : 'p') + (v.hasFlaps || v.hasRetract ? 'f' : '')
         : v.kind === 'drone' ? `D${v.aircraft ? 'w' : ''}${v.sas}${F.fpv ? 'f' : ''}${v.carrier ? 'b' : ''}${v.dl && v.dl.lockOn ? 'L' : ''}${v.dr && v.dr.cam ? 'c' : ''}${F.fpv && v.dr && v.dr.cam && v.dr.cam.def.drone.cam.gimbal ? 'g' : ''}` : v.kind;
       const rdr = !!(v && !F.destroyed && typeof Radar !== 'undefined' && Radar.aboard(v)); // (a radar aboard: its keys)
       const key = `${mode}|${weap}|${cm}|${cat}|${!!F.mp}|${open}|${Keys.version}|${rdr}${v && v.kind === 'drone' ? '|' + Settings.get('droneStick') : ''}${dk && typeof Drone !== 'undefined' ? '|' + Drone.left(v) + (v.drone && !v.drone.dead ? 'u' : '') : ''}`;
@@ -479,7 +494,22 @@ const Controls = (() => {
       if (!open || !v) { list.innerHTML = ''; return; }
       const f = (...ids) => Keys.firsts(...ids), row = (k, t) => `<div><span class="kh-k">${k}</span><span>${t}</span></div>`;
       const r = [], droneLeft = (o) => (o.drone && !o.drone.dead ? 'Drone (up)' : `Drone ×${typeof Drone !== 'undefined' ? Drone.left(o) : 0}`);
-      if (F.groundAim) { // (aiming a ground vehicle's guns)
+      if (sea) { // (the ships update: the helm, then the guns as a tank's while it aims)
+        r.push(row(f('fwd', 'back'), 'Telegraph'), row(f('left', 'right'), 'Rudder'), row(f('thrFull', 'thrCut'), 'Flank, stop'), row(f('sHold'), v.sas === 'manual' ? 'Hold heading' : 'Hand steer'));
+        if (F.groundAim) {
+          r.push(row('<kbd>Mouse</kbd>', 'Aim (click)'), row(`<kbd>LMB</kbd>${f('fire')}`, 'Fire'), row(`<kbd>RMB</kbd>${f('sight')}`, 'Sight'), row(Keys.run(['shell1', 'shell2', 'shell3', 'shell4']), 'Shells'), row(f('weapon'), 'Weapon'));
+          if (mode.includes('l')) r.push(row(f('lock'), 'Lock'));
+          if (mode.includes('r')) r.push(row(f('zero'), 'Range'));
+          r.push(row(f('camera'), 'Look (hold)'), row(f('tacMap'), 'Map'));
+        } else {
+          if (weap) r.push(row(f('fire'), 'Fire'), row(f('weapon'), 'Weapon'));
+          r.push(row(f('camera'), 'Camera'), row(f('map'), 'Map'));
+        }
+        if (cm) r.push(row(f('cm'), 'Decoys'));
+        if (/[cC]/.test(mode)) r.push(row(f('sCiws'), mode.includes('C') ? 'CIWS auto' : 'CIWS hold fire')); // ([WP12] what the key does now, as the hold key's: the helm panel says what is set)
+        r.push(row(f('sDc'), 'Damage control'), row(f('sView'), F.bridge ? 'Chase view' : 'Bridge view'));
+        if (!F.mp && !F.groundAim) r.push(row(f('warpDown', 'warpUp'), 'Warp'));
+      } else if (F.groundAim) { // (aiming a ground vehicle's guns)
         r.push(row(f('fwd', 'back'), 'Drive'), row(f('left', 'right'), 'Turn'), row('<kbd>Mouse</kbd>', 'Aim (click)'), row(`<kbd>LMB</kbd>${f('fire')}`, 'Fire'), row(`<kbd>RMB</kbd>${f('sight')}`, 'Sight'),
           row(f('mg'), 'MG (hold)'), row(Keys.run(['shell1', 'shell2', 'shell3', 'shell4']), 'Shells'), row(f('weapon'), 'Weapon'), row(f('cm'), 'Smoke'));
         if (mode.includes('l')) r.push(row(f('lock'), 'Lock'));

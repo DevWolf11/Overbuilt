@@ -69,7 +69,7 @@ t('...one the player knocks out counts (1 KO, the best shot its range), says "En
 t('...it comes back 45 s later (not at 44 s), somewhere else at least 400 m from the player and clear of its wreck, which stays',
   R(`!back44 && wreck44 && !!nt && Math.hypot(p2.e - p1.e, p2.z - p1.z) > 50 && Math.hypot(p2.e - NPAD.e, p2.z - NPAD.z) > 395 && F1.vessels.includes(tgt1) && !tgt1.dead && tgt1.wreck && !(tgt1.sink > 0) && !p2.wet`), R('[back44, wreck44, !!nt, p2, F1.vessels.includes(tgt1), tgt1.sink]'));
 R(`for (const v of GroundAI.ai.slice(0, 2)) { v.lastHitBy = F1.active; Armour.knockOut(v, F1, 'crew'); } go(F1, 0.5);`);
-t('...three knock-outs with a ground vehicle: the Tank Range mission ($25,000)', R(`GroundAI.range.kos === 3 && F1.flags.tankRange === true`), R('[GroundAI.range.kos, F1.flags]'));
+t('...three knock-outs with a ground vehicle: the Tank Range milestone', R(`GroundAI.range.kos === 3 && F1.flags.tankRange === true`), R('[GroundAI.range.kos, F1.flags]'));
 // (the big update, death.test's C7) every wreck stays five minutes, the last 6 s of them sinking (o.sink 0..1: the
 // renderer lowers it), and then it is gone with the turret its detonation threw; a clock that jumps past the end drops
 // one at once. The comeback TK-34 knocked out by a detonation, then the clock moved on

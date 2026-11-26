@@ -153,6 +153,22 @@ EARTH.arenas = {
     zones: [{ id: 'A', name: 'West', e: 1250, z: 0, r: 45 }, { id: 'B', name: 'East', e: 2150, z: 0, r: 45 }, { id: 'C', name: 'Centre', e: 1700, z: 0, r: 45 }],
     air: [], berms: [],
   },
+  // [WP11] (the ships update) The Naval Battle's arena (real map only): the open water between Shetland (north, z under
+  // 2,000) and the north of Scotland (south, z over 7,500), 15-35 m deep (probed at 250 m; the waves' fade is whole past
+  // 25 m). The teams start 9.4 km apart at either end, out of each other's sight over the horizon (two destroyers' 28.7 m
+  // tops see each other 8.5 km apart, a little more on a rough sea's crests; 7 km, the spec's, had them in sight and in
+  // reach of each other's missiles at their starts); their pads are spots on
+  // the water (ships abreast 120 m apart across them, gmode.js placement), and its three zones lie at sea. sea: no
+  // levelled ground, no props and no arena mesh (terrain.js, props.js and render3d's arena ground never look at it: it is
+  // neither a ground pad nor `clear`); kinds: who takes its zones (ships afloat: GroundMode.tick).
+  sound: {
+    name: 'Shetland Sound', sea: true, map: true, kinds: ['ship'], box: { e0: 14300, e1: 25300, z0: 2500, z1: 7000 },
+    pads: [{ name: 'West', e: 15100, z: 4600, yaw: 0, hl: 150, hw: 400 }, { name: 'East', e: 24500, z: 4600, yaw: Math.PI, hl: 150, hw: 400 }],
+    zones: [{ id: 'A', name: 'West Narrows', e: 18200, z: 3800, r: 350 }, { id: 'B', name: 'East Narrows', e: 21400, z: 3800, r: 350 },
+      { id: 'C', name: 'Mid-Sound', e: 19800, z: 5000, r: 350, rDuel: 450 }],
+    air: [{ e: 14400, z: 4600, yaw: 0, air: { alt: 1000, speed: 140 } }, { e: 25200, z: 4600, yaw: Math.PI, air: { alt: 1000, speed: 140 } }],
+    berms: [],
+  },
 };
 for (const a of Object.values(EARTH.arenas)) for (const f of [...a.pads, ...a.berms]) { f.c = Math.cos(f.yaw); f.s = -Math.sin(f.yaw); }
 
@@ -185,9 +201,37 @@ EARTH.spawns = [
   { id: 'bettyhill', name: 'Bettyhill', region: 'Scotland', kinds: ['rocket'], pad: 'bettyhill', u: 0, v: 0, blurb: 'A launch pad with a service tower on the Sutherland coast' },
   { id: 'airFaroes', name: 'Over the Faroes', region: 'Faroes', kinds: ['plane'], air: { e: -3000, z: 0, yaw: 0, alt: 800, speed: 120 }, blurb: 'Flying in from the west, 800 m up' },
   { id: 'airHighland', name: 'Over Highland Ridge', region: 'Scotland', kinds: ['plane'], air: { e: 17750, z: 10800, yaw: -Math.PI / 2, alt: 1000, speed: 140 }, blurb: 'Flying in from the north, 1 km up' },
+  // (the ships update) ships: the bay (the kind's own site: afloat, bow out to sea), and `sea` spots on the water (e, z, the
+  // bow along yaw), a room's next ships abreast 120 m apart (Spawns.place), either side in turn, or all to one (side: -1,
+  // to port: away from a carrier). Each in 19 m of water or more under a 160 m by 24 m box round every one of a room's
+  // first six places, past any stock ship's draft + 2 m (test/spawns.test.js)
+  { id: 'bay', name: 'The bay', region: 'Faroes', kinds: ['ship'], def: ['ship'], site: 'bay', blurb: 'West of the space centre\'s island, bow out to sea' },
+  { id: 'slipway', name: 'Off the slipway', region: 'Faroes', kinds: ['ship'], sea: { e: 3540, z: 0, yaw: 0 }, blurb: 'Off the headland past the runway, heading east for Shetland' },
+  { id: 'carrierW', name: 'Off Carrier West', region: 'Faroes', kinds: ['ship'], sea: { e: -7000, z: 2200, yaw: 0, side: -1 }, blurb: 'Abeam of the western carrier, 300 m off' },
+  { id: 'shetlandHbr', name: 'Off Shetland harbour', region: 'Shetland', kinds: ['ship'], sea: { e: 17420, z: 150, yaw: Math.PI }, blurb: 'Off the port town, bow out to sea' },
+  { id: 'carrierE', name: 'Off Carrier East', region: 'Shetland', kinds: ['ship'], sea: { e: 24000, z: 1800, yaw: Math.PI, side: -1 }, blurb: 'Abeam of the eastern carrier, 300 m off' },
+  { id: 'caithness', name: 'Off Caithness', region: 'Scotland', kinds: ['ship'], sea: { e: 17700, z: 11000, yaw: Math.PI }, blurb: 'Off the north coast of Scotland, heading west' }, // (bow to the swell: beam-on she rolled 9° in her first seconds)
+  { id: 'carrierS', name: 'Off Carrier South', region: 'Scotland', kinds: ['ship'], sea: { e: 22269, z: 13691, yaw: Math.PI * 0.72, side: -1 }, blurb: 'Abeam of the southern carrier, 300 m off' },
 ];
 
 function siteAngle(b, east) { return b.padAngle - east / b.radius; }
+
+// [WP10] The Naval Range (the ships update, ship.js ai): the open sea east of the islands between the Faroes and Shetland,
+// 20-280 m deep (probed), with a ship of the player's (a sea kind, or any craft afloat) within r + 6 km of (e, z), Settings
+// → Targets at Practice or Hostile, alone (no room, no battle). Places as EARTH.spawns' sea spots (e, z, the bow along yaw):
+// Practice, a moored hulk 2 km out from the slipway and three ships steaming loops (each loop r m round its middle: a 3 km
+// loop and a 6 km one further east), a ship sunk back 60 s later at its loop's far point; Hostile, waves from the east,
+// line abreast at e 16,000 `gap` m apart, heading west.
+EARTH.navalRange = {
+  e: 9000, z: 0, r: 9000, spot: 'slipway',
+  hulk: { key: 'cyclon', e: 5540, z: 0, yaw: Math.PI / 2 },
+  loops: [
+    { key: 'cyclon', kn: 12, e: 7600, z: -1800, r: 480 },
+    { key: 'osca', kn: 18, e: 7600, z: 1200, r: 480 },
+    { key: 'olivar', kn: 15, e: 11500, z: 0, r: 955 },
+  ],
+  hostile: { e: 16000, z: -1500, yaw: Math.PI, gap: 700 },
+};
 
 const MOON = makeBody({
   id: 'moon', name: 'Moon', radius: 90000, surfaceG: 1.62, parent: EARTH, orbitRadius: 6.2e6, orbitPhase: 2.4, orbitDir: -1,

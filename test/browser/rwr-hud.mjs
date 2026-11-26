@@ -63,7 +63,6 @@ for (const [tag, vp] of [['phone portrait', [390, 844, true]], ['small phone', [
   watch(A, errs, 'room A '); watch(B, errs, 'room B ');
   await openGame(A, srv.url);
   await B.goto(srv.url + 'index.html'); await B.waitForTimeout(300);
-  if (await B.isVisible('[data-mode="sandbox"]')) await B.click('[data-mode="sandbox"]');
   for (const p of [A, B]) await p.evaluate(() => { Render3D.skipDraw = true; });
   await A.click('#home-mp'); await A.fill('#mp-name', 'Alice'); await A.dispatchEvent('#mp-name', 'change'); await A.click('[data-tr="local"]'); await A.click('#mp-create-sandbox');
   await A.waitForFunction(() => MP.live && Net.code, null, { timeout: 10000 });

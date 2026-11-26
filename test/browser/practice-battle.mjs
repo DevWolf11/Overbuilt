@@ -1,6 +1,6 @@
 // The Practice Battle and the Tank Range played alone in the real page (the ground update):
-//  - Career money: a Practice Battle lends its vehicle (the launch is free) and none of it is saved: Save & exit leaves
-//    no flight to resume (resumed, it could be Recovered for 90% of a price never paid), and the funds stay put.
+//  - A lent vehicle: a Practice Battle lends its vehicle and none of it is saved: Save & exit leaves no flight to resume
+//    (a battle can't be resumed or Recovered). An old career save in the profile (career mode is gone) changes nothing.
 //  - Time warp: on the Tank Range and in a Practice Battle their bar takes the warp control's place, and the , and .
 //    keys do nothing there (an 8x nobody could see, or a rails warp freezing the AI while the clock jumps).
 //  - The Retro 2D flight (a silly setting): the battle is fought on the Runway arena, as a launch goes to the runway
@@ -22,7 +22,7 @@ const mapIn = () => typeof Terrain !== 'undefined' && Terrain.earthMap && Terrai
 const inBattle = () => App.scene === 'flight' && GroundAI.battle && Flight.running && Flight.time > 1;
 const tk34 = () => { const t = TEMPLATES.tk34; return { name: t.name, kind: t.kind, parts: templateRows(t) }; };
 
-// ---- a phone in portrait: career money, then the bar's line at three widths
+// ---- a phone in portrait: the lent vehicle (an old career save in the profile, ignored), then the bar's line at three widths
 {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const page = await ctx.newPage();
@@ -44,17 +44,17 @@ const tk34 = () => { const t = TEMPLATES.tk34; return { name: t.name, kind: t.ki
   await tap('#modal-card .rsp-opt >> text=/Modern/');
   await page.waitForFunction(inBattle, null, { timeout: 120000 });
   await ev(() => { Render3D.skipDraw = true; });
-  const inB = await ev(() => { Flight.save(); return { career: !Career.sandbox, funds: Career.data.funds, saved: store.get('rss.flight', null), recover: Flight.canRecover(), name: Flight.active.name }; });
-  ok('career, $50,000: in a Practice Battle (Modern) its vehicle came free, Recover is off, and a save (the 10 s autosave) keeps nothing',
-    inB.career && inB.funds === 50000 && !inB.recover && inB.saved === null, inB);
+  const inB = await ev(() => { Flight.save(); return { saved: store.get('rss.flight', null), recover: Flight.canRecover(), name: Flight.active.name }; });
+  ok('in a Practice Battle (Modern) Recover is off, and a save (the 10 s autosave) keeps nothing',
+    !inB.recover && inB.saved === null, inB);
   await tap('#btn-menu');
   await tap('#modal-card .btn >> text=/Save & exit/');
   await page.waitForTimeout(500);
   await ev(() => App.toHome()); await page.waitForTimeout(300);
-  const home = await ev(() => ({ saved: store.get('rss.flight', null), resume: !$('#home-resume').hidden, funds: Career.data.funds, scene: App.scene }));
+  const home = await ev(() => ({ saved: store.get('rss.flight', null), resume: !$('#home-resume').hidden, scene: App.scene, oldSave: localStorage.getItem('rss.career') !== null }));
   await shot(page, 'home-after-save-exit-390x844');
-  ok('...Save & exit: no flight saved, so Home offers no Resume (nothing to Recover for 90% of a free vehicle), funds still $50,000',
-    home.saved === null && !home.resume && home.funds === 50000, home);
+  ok('...Save & exit: no flight saved, so Home offers no Resume; the old career save left alone (never read, never deleted)',
+    home.saved === null && !home.resume && home.oldSave, home);
   // knocked out in a battle: "Knocked out · back in N s" whole at each width (the panel's Watch closes it)
   await ev((d) => GroundAI.startBattle(Flight, { money: 45000, design: d }), await ev(tk34));
   await page.waitForFunction(inBattle, null, { timeout: 120000 });

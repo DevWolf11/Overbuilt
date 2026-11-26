@@ -280,7 +280,6 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   watch(A, errs, tag + ' A '); watch(B, errs, tag + ' B ');
   await openGame(A, srv.url, {});
   await B.goto(srv.url + 'index.html'); await B.waitForTimeout(300);
-  if (await B.isVisible('[data-mode="sandbox"]')) await B.click('[data-mode="sandbox"]');
   await A.evaluate(instrument);
   await A.click('#home-mp'); await A.fill('#mp-name', 'Alice'); await A.dispatchEvent('#mp-name', 'change'); await A.click('[data-tr="local"]'); await A.click('#mp-create-sandbox');
   await A.waitForFunction(() => MP.live && Net.code, null, { timeout: 10000 });

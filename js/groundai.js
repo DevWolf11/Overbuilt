@@ -624,16 +624,29 @@ const GroundAI = (() => {
   }
 
   // ---------------------------------------------------------------- aim and fire (each frame)
+  // The point a computer's guns go on (the ground AI's, and the ships update's computer ships: ship.js ai): target t's
+  // middle raised `up` m along its own vertical, led for its motion relative to v's over tof s (the round's flight), and
+  // off by the angles ea (level) and eb (up) across the line of sight from v. Into P; returns the range (m).
+  function aimAt(v, t, P, ea, eb, tof, up) {
+    const tx = t.x, ty = t.y, tz = t.z, r = len(tx, ty, tz) || 1, ux = tx / r, uy = ty / r, uz = tz / r;
+    let dx = tx - v.x, dy = ty - v.y, dz = tz - v.z;
+    const D = len(dx, dy, dz) || 1;
+    dx /= D; dy /= D; dz /= D;
+    let e1x = dy * uz - dz * uy, e1y = dz * ux - dx * uz, e1z = dx * uy - dy * ux;
+    const el = len(e1x, e1y, e1z) || 1; e1x /= el; e1y /= el; e1z /= el;
+    const e2x = e1y * dz - e1z * dy, e2y = e1z * dx - e1x * dz, e2z = e1x * dy - e1y * dx, ka = ea * D, kb = eb * D;
+    P.x = tx + ux * up + (t.vx - v.vx) * tof + e1x * ka + e2x * kb;
+    P.y = ty + uy * up + (t.vy - v.vy) * tof + e1y * ka + e2y * kb;
+    P.z = tz + uz * up + (t.vz - v.vz) * tof + e1z * ka + e2z * kb;
+    return D;
+  }
   // The point it wants its guns on: the target's middle (raised half a metre), led for its motion over the round's
   // flight, off by its error; it fires once it has reacted, stands still, sees the target within 1.2 km with no teammate
   // in the way, and the gun is on (within 0.4°, an automatic gun 1.2°) and ready. Practice targets never fire.
   function aimFrame(v, F) {
     const a = v.ai, t = a.tgt;
     if ((a.role !== 'fight' && a.role !== 'guard') || !t || a.down || v.ko || t.dead || F.time < a.reactAt || (S.b && S.b.over)) { v.aimP = null; v.aimFire = v.mgFire = false; a.onN = 0; return; }
-    const P = a.P, k = a.k, M = a.gun, tx = t.x, ty = t.y, tz = t.z, r = len(tx, ty, tz) || 1, ux = tx / r, uy = ty / r, uz = tz / r;
-    let dx = tx - v.x, dy = ty - v.y, dz = tz - v.z;
-    const D = len(dx, dy, dz) || 1;
-    dx /= D; dy /= D; dz /= D;
+    const P = a.P, k = a.k, M = a.gun;
     // the error: a fresh roll after each shot (and every 4 s), across the line of sight (e1 level, e2 up it); the first
     // round at a new target goes 2.5 times as wide (it is ranging), so a tank caught in the open has a moment to react
     const fired = !!M && M.shotAt != null && M.shotAt !== a.shot;
@@ -646,13 +659,7 @@ const GroundAI = (() => {
       const m = a.errK * (a.nShot ? 1 : 2.5) * Math.sqrt(S.rnd()), q = S.rnd() * TAU;
       a.ea = Math.cos(q) * m; a.eb = Math.sin(q) * m;
     }
-    let e1x = dy * uz - dz * uy, e1y = dz * ux - dx * uz, e1z = dx * uy - dy * ux;
-    const el = len(e1x, e1y, e1z) || 1; e1x /= el; e1y /= el; e1z /= el;
-    const e2x = e1y * dz - e1z * dy, e2y = e1z * dx - e1x * dz, e2z = e1x * dy - e1y * dx, ka = a.ea * D, kb = a.eb * D, tof = a.tof;
-    const up = t.kind === 'drone' ? 0 : 0.5; // (a drone at its middle: half a metre up is over it)
-    P.x = tx + ux * up + (t.vx - v.vx) * tof + e1x * ka + e2x * kb;
-    P.y = ty + uy * up + (t.vy - v.vy) * tof + e1y * ka + e2y * kb;
-    P.z = tz + uz * up + (t.vz - v.vz) * tof + e1z * ka + e2z * kb;
+    const D = aimAt(v, t, P, a.ea, a.eb, a.tof, t.kind === 'drone' ? 0 : 0.5); // (a drone at its middle: half a metre up is over it)
     const was = v.aimP === P;
     v.aimP = P;
     // on target this frame and the last (so an angle left from an earlier aim never fires a round)
@@ -728,8 +735,8 @@ const GroundAI = (() => {
   }
 
   // ---------------------------------------------------------------- knocked out (Combat.aiDown) and back again
-  // (kit: a drone the player's automatic counter-drone kit brought down: on the range's tally, but the career's award
-  // wants three of the player's own, never won with no hand on the controls; P4-AI-4)
+  // (kit: a drone the player's automatic counter-drone kit brought down: on the range's tally, but the Tank Range
+  // milestone wants three of the player's own, never won with no hand on the controls; P4-AI-4)
   function score(F, v, kit) {
     const R0 = S.range, A = F.active, d = A ? len(A.x - v.x, A.y - v.y, A.z - v.z) : 0;
     if (!R0) return;
@@ -932,12 +939,11 @@ const GroundAI = (() => {
     return { design: { name: T.name, kind: T.kind, key, parts: T.rows.map((q) => ({ ...q })) }, why: d && isGround(d.kind) ? `Your ${d.name || 'design'} costs more than ${money$(money)}` : 'Practice battles are for Armour and cars' };
   }
   const money$ = (n) => (typeof money === 'function' ? money(n) : '$' + Math.round(n).toLocaleString('en-US'));
-  // start (or come back in) the player's vehicle at its pad, keeping the AI and the wrecks; a practice launch is free
+  // start (or come back in) the player's vehicle at its pad, keeping the AI and the wrecks
   function launch(F, design, place, fresh) {
     const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && (o.ai.ground || o.ai.drone)) || o.wreck || o.tossed || o === S.fall)); // (and the AI's drones) // (thrown turrets too: they lie by their wrecks; the last hulk still falling, a wreck once it lands)
     F.start(design, { place, keep, time: fresh ? undefined : F.time }); // (the clock runs on: the battle's timers keep it)
     if (typeof store !== 'undefined') store.set('rss.flight', null); // (Flight.start saved it: a lent vehicle in a battle that can't be saved is never resumed)
-    if (typeof Career !== 'undefined' && F.launchCost) { Career.earn(F.launchCost); F.launchCost = 0; }
     Combat.S.gai = 1; // (Combat.reset cleared it)
     S.b.cost = designCost(F.active.parts); S.b.kind = F.active.kind; S.b.design = design;
     F.active.spawnAt = F.time || 0; // (4 s of spawn protection, as in a room)
@@ -1171,6 +1177,9 @@ const GroundAI = (() => {
     },
     // one 1/30 s move of a kinematic AI vehicle (exposed for the tests and the bench)
     kinStep(v, dt) { kinStep(v, dt); },
+    // the point a computer's guns go on (aimFrame's, shared with the computer's ships: ship.js ai): aimAt(v, t, P, ea, eb,
+    // tof, up) puts it in P and returns the range
+    aimAt,
     pose(v, ahead = 0) { pose(v, ahead); },
     // a ground AI knocked out (Combat.aiDown): the hulk stays as a wreck; counted (the range's score, the battle's
     // tickets and the player's knock-outs); and back later

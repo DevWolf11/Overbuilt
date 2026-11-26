@@ -403,7 +403,7 @@ u.done();
 const r = (x) => +(+x).toPrecision(10);
 function finger() {
   const out = {};
-  const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane').concat(['RAIDER']);
+  const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane' && ctx.TEMPLATES[k].group !== 'ship').concat(['RAIDER']); // (not the ships update's flying boat: ships.test's)
   for (const key of keys) {
     const rows = key === 'RAIDER' ? ctx.RAIDER : ctx.TEMPLATES[key].parts;
     const { v } = craft(ctx, rows, 'plane');
@@ -444,7 +444,7 @@ check('combat', finger());
 // result, the rows and the module rows). Part ids are made the same each time (the resolver's dice read them).
 function groundFinger() {
   const out = {}, P = (o, x, y, z) => { const l = o.toLocal(x, y, z); return [r(l.x), r(l.y), r(l.z)].join(','); };
-  const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].parts.some((q) => ctx.PARTS[q[0]] && ctx.PARTS[q[0]].gv));
+  const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].parts.some((q) => ctx.PARTS[q[0]] && ctx.PARTS[q[0]].gv) && ctx.TEMPLATES[k].kind !== 'ship'); // (the ships update's ships carry gv parts too: not ground vehicles)
   const mr = ctx.Math.random;
   ctx.Math.random = () => 0.5;
   for (const key of keys) {

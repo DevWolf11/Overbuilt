@@ -46,7 +46,7 @@ export function watch(page, errs, tag = '', warnings = false) {
   page.on('console', (m) => { if (m.type() === 'error' || (warnings && m.type() === 'warning')) errs.push(`${tag}${m.type()} ${m.text()}`); });
 }
 
-// the game in a fresh profile: help seen, hints and AI targets off, low quality; sandbox picked
+// the game in a fresh profile: help seen, hints and AI targets off, low quality
 export async function openGame(page, url, settings = {}) {
   await page.goto(url + 'index.html');
   await page.evaluate((s) => {
@@ -55,7 +55,6 @@ export async function openGame(page, url, settings = {}) {
   }, settings);
   await page.reload();
   await page.waitForTimeout(400);
-  if (await page.isVisible('[data-mode="sandbox"]')) await page.click('[data-mode="sandbox"]');
 }
 
 export function checks(title) {

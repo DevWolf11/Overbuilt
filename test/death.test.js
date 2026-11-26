@@ -14,7 +14,7 @@ const { Combat, Death, FX, TEMPLATES, PARTS, EARTH } = ctx;
 const SILLY = R('Silly.flags'), wingAero = R('wingAero');
 const t = G.checks('death: the damage model (death.js)');
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
-const PLANES = Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'plane');
+const PLANES = Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'plane' && TEMPLATES[k].group !== 'ship'); // (not the ships update's flying boat: ships.test's)
 const HELIS = Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'heli');
 const maxHp = (p) => Combat.maxHp(p.def);
 const dmgTo = (p, f) => (maxHp(p) * f) / (1 - (p.def.armor || 0)); // (what takes a part from full health to f of its own; armour turns the rest)
@@ -1655,6 +1655,145 @@ const runD1 = (ab) => {
   for (let i = 0; i < 6; i++) { F.time += 1 / 60; T.playerFrame(F, 1 / 60); }
   t('F9 a FIRE press while the craft is lost is spent (fireTap cleared), and the next craft fires nothing by itself (the Stratobomber keeps its bombs)',
     v.wsel >= 0 && kept === false && bombs() === n0 && n0 > 0, { wsel: v.wsel, kept, n0, n: bombs() });
+}
+
+// B11 (last in the file: it makes parts, and later checks' dice go by part ids) crashes into the sea (death.js's sea rule; the bug report: "they lose all speed and just freeze, then sink
+// slowly"): a craft over the open sea (angle 0, 626 m deep), h m up, flying at V m/s, dive° below the level, flown by
+// fly() (the real breakParts, Death's tick, the cleanup). A fast crash ploughs in and goes under at once, gone within
+// SEA.life s (seaPose: what the renderer draws); a slow one floats and sinks; what nobody is in sinks; a ditching, a
+// splashdown under a parachute and a seaplane on its floats are no crash and stay afloat as before
+{
+  const SEA = R('SEA'), qmul = R('qmul'), qaxis = R('qaxis'), { Terrain } = ctx;
+  const seaCraft = (key, kind, h, V, dive, rows0) => {
+    const v = G.craft(ctx, rows0 || rows(key), kind, 'site');
+    v.placeOnSurface(EARTH, 0, ctx.VEHICLE_KINDS[kind].launchRot);
+    const r = v.radius(), u = { x: v.x / r, y: v.y / r, z: v.z / r }, Fp = kind === 'plane' ? v.pilot.F : v.drive.F;
+    v.x += u.x * h; v.y += u.y * h; v.z += u.z * h; v.landed = false;
+    let f = v.axis(Fp.x, Fp.y, Fp.z);
+    const th = (dive * Math.PI) / 180;
+    if (kind === 'plane') { const rt = { x: f.y * u.z - f.z * u.y, y: f.z * u.x - f.x * u.z, z: f.x * u.y - f.y * u.x }; v.q = qmul(qaxis(rt.x, rt.y, rt.z, -th), v.q); f = v.axis(Fp.x, Fp.y, Fp.z); }
+    const k = f.x * u.x + f.y * u.y + f.z * u.z, fh = { x: f.x - u.x * k, y: f.y - u.y * k, z: f.z - u.z * k }, n = Math.hypot(fh.x, fh.y, fh.z) || 1;
+    v.vx = (fh.x / n) * V * Math.cos(th) - u.x * V * Math.sin(th); v.vy = (fh.y / n) * V * Math.cos(th) - u.y * V * Math.sin(th); v.vz = (fh.z / n) * V * Math.cos(th) - u.z * V * Math.sin(th);
+    if (kind === 'plane') { v.gearUp = true; for (const p of v.wheels) if (p.def.wheel.retract) p.retracted = true; }
+    G.stage(v); v.throttle = 0.5; v.sas = 'off';
+    return v;
+  };
+  const floor = (v) => { const L = Terrain.locate(EARTH, v.x, v.y, v.z, {}); return { lvl: Terrain.surfaceAt(EARTH, L.a, L.z), bed: Terrain.heightAt(EARTH, L.a, L.z), wet: !!Terrain.waterAt(EARTH, L.a, L.z) }; };
+  const poses = (s) => [0.25, 1, 2, SEA.life - 0.05, SEA.life + 0.01].map((dt) => { const p = Death.seaPose(s, dt); return p && { a: +p.a.toFixed(1), d: p.d == null ? null : +p.d.toFixed(1), k: +(p.k * 57.3).toFixed(0) }; });
+  // 1 a Falcon diving 30° into the sea at 200 m/s: one fireball in the water (a wet crash site), gone from the sim at the
+  // crash (not a frozen hulk on the surface), and drawn ploughing 30-45 m on, under at once, 40 m down within 2 s, nose
+  // further down, gone 4.5 s after
+  Death.reset({}); deaths = [];
+  const A = seaCraft('falcon', 'plane', 60, 200, 30), AF = fsim(A);
+  const w0 = floor(A);
+  fly(AF, 3, () => A.dead);
+  const sa = A.sea, pa = sa && poses(sa), pyA = Death.S.pyres[Death.S.pyres.length - 1];
+  t(`B11 a Falcon diving 30° into the sea (${w0.bed.toFixed(0)} m deep) at 200 m/s: one fireball in the water, gone from the sim at the crash, a fast plunge (along ${sa && sa.vh.toFixed(0)}, down ${sa && sa.vd.toFixed(0)} m/s)`,
+    w0.wet && A.dead && deaths.join() === 'crash' && !!pyA && pyA.wet && !!sa && sa.fast && sa.vh > 150 && sa.vd > 90 && sa.lvl === 0 && sa.bed < -100 && AF.crashedAt === sa.t && !AF.vessels.includes(A), { deaths, sea: sa, pyre: pyA && pyA.wet, at: AF.crashedAt });
+  t(`B11 ...drawn ploughing on and going under at once: at 0.25 s ${pa && pa[0].a} m on, ${pa && pa[0].d} m down; at 1 s ${pa && pa[1].a} m on, ${pa && pa[1].d} m down, ${pa && pa[1].k}° further nose-down; at 2 s ${pa && pa[2].d} m down; gone at ${SEA.life} s`,
+    !!pa && pa[0].a > 15 && pa[0].d > 10 && pa[1].a > 30 && pa[1].a < 45 && pa[1].d > 30 && pa[1].k > 30 && pa[2].d > 40 && pa[3] && pa[3].d > 60 && pa[4] === null, pa);
+  // 2 the same Falcon 8° at 150 m/s, and a hulk (a Mustang, its pilot shot) falling into the sea at 80 m/s: fast plunges too
+  Death.reset({}); deaths = [];
+  const B = seaCraft('falcon', 'plane', 25, 150, 8), BF = fsim(B);
+  fly(BF, 3, () => B.dead);
+  const H = seaCraft('mustang', 'plane', 80, 80, 25), HF = fsim(H);
+  Combat.damage(H, H.control, dmgTo(H.control, 1.01), 'shot', HF);
+  fly(HF, 5, () => H.dead);
+  t(`B11 ...a Falcon 8° at 150 m/s and a Mustang hulk (its pilot shot) going in at ${H.sea ? Math.hypot(H.sea.vh, H.sea.vd).toFixed(0) : '?'} m/s: each gone at the crash, ploughing in (${B.sea && Death.seaPose(B.sea, 1).a.toFixed(0)} m, ${H.sea && Death.seaPose(H.sea, 1).a.toFixed(0)} m) and under at once`,
+    B.dead && B.sea && B.sea.fast && Death.seaPose(B.sea, 0.5).d > 8 && H.dead && H.sea && H.sea.fast && Death.seaPose(H.sea, 0.5).d > 8 && deaths.filter((k) => k === 'crash').length === 2, { B: B.sea, H: H.sea, deaths });
+  // 3 slow: a hulk (a Dragonfly, its pilot shot) dropped 60 m onto the sea: it floats a moment (2 s at rest, B3) and
+  // goes up and sinks the slow way (float, then down over 8 s)
+  Death.reset({}); deaths = [];
+  const D = seaCraft('dragonfly', 'heli', 60, 0, 0), DF = fsim(D);
+  D.throttle = 0; Combat.damage(D, D.control, dmgTo(D.control, 1.01), 'shot', DF);
+  fly(DF, 12, () => D.dead);
+  const sd = D.sea, pd = sd && Death.seaPose(sd, 4);
+  t(`B11 a Dragonfly hulk dropped 60 m onto the sea: it floats a moment, then goes the slow way (no plough: ${pd && pd.a.toFixed(1)} m; the float-and-sink over ${R('SEA').slow} s)`,
+    D.dead && !!sd && !sd.fast && pd && pd.d === null && pd.a < 1 && Death.seaPose(sd, SEA.slow - 0.01) && !Death.seaPose(sd, SEA.slow), sd);
+  // 4 a Mustang ditching at 70 m/s, 4° down: no crash (its pilot and its flight kept, afloat within 130 m as ever); the
+  // tail wheel it knocks off skims away at 65 m/s and goes under at once; a fin shot off and floating still sinks after
+  // 15 s (90 on land, B3) and is gone 6 s later
+  Death.reset({}); deaths = [];
+  const M = seaCraft('mustang', 'plane', 6, 70, 4), MF = fsim(M);
+  M.throttle = 0;
+  let tw = null;
+  fly(MF, 8, () => { if (!tw) tw = MF.vessels.find((o) => o !== M && o.parts.some((p) => p.def.wheel)); return false; });
+  const dM = floor(M);
+  t(`B11 a Mustang ditching at 70 m/s: no crash (pilot, control and flight kept, afloat ${(Math.hypot(M.x, M.y, M.z) - EARTH.radius).toFixed(1)} m up, still); its knocked-off tail wheel went under at once (${tw && tw.sea ? tw.sea.vh.toFixed(0) + ' m/s' : 'no'})`,
+    !M.dead && !!M.control && !MF.destroyed && MF.ondead === 0 && M.splashed && M.speed() < 0.5 && dM.wet && !M.sea && !!tw && tw.dead && !!tw.sea && tw.sea.fast && !deaths.includes('crash'), { tw: tw && tw.sea, deaths, speed: M.speed() });
+  const fin = M.parts.find((p) => p.def.shape === 'vtail');
+  Combat.damage(M, fin, dmgTo(fin, 1.1), 'shot', MF);
+  const pc = MF.vessels.find((o) => o !== M && o.parts.includes(fin));
+  let sinkAt = null, goneAt = null;
+  const tf = MF.time;
+  fly(MF, 30, () => { if (pc.sink > 0 && sinkAt == null) sinkAt = MF.time - tf; if (pc.dead && goneAt == null) goneAt = MF.time - tf; return pc.dead; });
+  t(`B11 ...a fin shot off it, floating still: junk, sinking from ${sinkAt && sinkAt.toFixed(1)} s (15 at rest, after it settles), gone at ${goneAt && goneAt.toFixed(1)} s`,
+    !!pc && pc.junkAt != null && sinkAt > 15 && sinkAt < 18.5 && goneAt - sinkAt > 5.9 && goneAt - sinkAt < 6.2 && !pc.sea, { sinkAt, goneAt });
+  // 5 no crash: a capsule (the Pathfinder's pod and chute) splashing down under its parachute at 8 m/s, and the Seagull on
+  // its floats at 30 m/s: afloat, flown, nothing taken (a recovery as ever)
+  Death.reset({}); deaths = [];
+  const cap = R('templateRows')(TEMPLATES.pathfinder).filter((r) => (Array.isArray(r) ? r[0] : r.type) === 'pod' || (Array.isArray(r) ? r[0] : r.type) === 'chute');
+  const C = seaCraft(null, 'rocket', 20, 0, 0, cap), CF = fsim(C);
+  for (const p of C.parts) if (p.def.chute) p.deployed = 1;
+  C.vx = -C.x / C.radius() * 8; C.vy = -C.y / C.radius() * 8; C.vz = -C.z / C.radius() * 8; C.throttle = 0;
+  fly(CF, 30, null);
+  const S = seaCraft('seagull', 'plane', 2, 30, 2), SF = fsim(S);
+  S.gearUp = false; S.throttle = 0;
+  fly(SF, 20, null);
+  t(`B11 a capsule splashing down under its parachute (8 m/s) and the Seagull landing on its floats (30 m/s): afloat, flown, nothing gone under (${C.parts.length} and ${S.parts.length} parts)`,
+    !C.dead && !!C.control && C.splashed && !C.sea && CF.ondead === 0 && CF.vessels.length === 1 && !S.dead && !!S.control && S.splashed && !S.sea && SF.ondead === 0 && !deaths.length,
+    { cap: { dead: C.dead, sp: C.speed(), n: CF.vessels.length }, gull: { dead: S.dead, sp: S.speed(), n: SF.vessels.length }, deaths });
+  // 6 an aircraft breaking anything on the water at SEA.total (90 m/s) or more is lost whole: an intact Falcon's gear
+  // broken on the sea at 120 m/s (a fast plunge); at 60 m/s on the sea, and at 120 m/s on the runway, today's breakage
+  const brk = (where, V) => {
+    const v = where === 'sea' ? seaCraft('falcon', 'plane', 1, V, 0) : G.craft(ctx, rows('falcon'), 'plane', 'site'), F = fsim(v);
+    if (where !== 'sea') { const f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z); v.vx = f.x * V; v.vy = f.y * V; v.vz = f.z * V; }
+    deaths = []; F.breakParts(v, [v.parts.find((p) => p.def.wheel)], 'impact');
+    return { dead: !!v.dead, fast: !!(v.sea && v.sea.fast), deaths: deaths.join(), ctl: !!v.control };
+  };
+  const b120 = brk('sea', 120), b60 = brk('sea', 60), l120 = brk('land', 120);
+  t('B11 an intact Falcon breaking its gear on the sea at 120 m/s: lost whole (one fireball, a fast plunge); at 60 m/s, or on the runway at 120, today\'s breakage (flying on)',
+    b120.dead && b120.fast && b120.deaths === 'crash' && !b60.dead && b60.ctl && !b60.deaths && !l120.dead && l120.ctl && !l120.deaths, { b120, b60, l120 });
+  // 7 a ground vehicle whose cab or hull breaks in the water (impactGround): fast, knocked out and gone under at once (no
+  // wreck left standing on the water, so none is sent to a room); slow, a wreck as ever
+  const gsea = (key, V) => {
+    const v = seaCraft(key, TEMPLATES[key].kind, 1, V, 0), F = fsim(v);
+    deaths = []; const cab = v.parts.find((p) => p.def.control);
+    const n = sysCalls(() => F.breakParts(v, [cab], 'impact'));
+    return { dead: !!v.dead, fast: !!(v.sea && v.sea.fast), ko: !!v.ko, wreck: !!v.wreck, ondead: F.ondead, gv: Object.keys(n).length };
+  };
+  const g50 = gsea('buggy', 50), g10 = gsea('buggy', 10), t50 = gsea('tk34', 50);
+  t('B11 a buggy and a TK-34 whose hull or cab breaks on the sea at 50 m/s: knocked out (the end of the drive once) and gone under (no wreck standing); the buggy at 10 m/s a wreck as ever; the buggy never calls the ground update\'s code',
+    g50.dead && g50.fast && g50.ko && !g50.wreck && g50.ondead === 1 && g50.gv === 0 && !g10.dead && g10.ko && g10.wreck && t50.dead && t50.fast && t50.ko && !t50.wreck && t50.ondead === 1, { g50, g10, t50 });
+  Death.reset({}); deaths = [];
+  // B12 (into the sea, the owner's follow-up) 1 fast skims break up (vessel.js WATER_SLAM): an FS-16 skimming in at 200 m/s,
+  // 5° (only dents before: it skipped on like a stone, alive) and at 150 m/s, 2°: lost whole, a fast plunge; a Jumbo
+  // ditching at 80 m/s, 3°, floats with its pilot as ever (the Mustang at 70, and the Seagull on its floats: B11)
+  const skim = (key, h, V, dive) => { Death.reset({}); deaths = []; const v = seaCraft(key, 'plane', h, V, dive), F = fsim(v); v.throttle = 0; fly(F, 12, () => v.dead); return { dead: !!v.dead, fast: !!(v.sea && v.sea.fast), deaths: deaths.join(), ctl: !!v.control, sp: +v.speed().toFixed(2), ondead: F.ondead }; };
+  const s5 = skim('fs16', 10, 200, 5), s2 = skim('fs16', 6, 150, 2), jb = skim('jumbo', 8, 80, 3);
+  t('B12 an FS-16 skimming into the sea at 200 m/s and 5°, and at 150 m/s and 2°: breaks up and goes under (one fireball, a fast plunge), no skipping on; a Jumbo ditching at 80 m/s and 3°: afloat with its pilot, still',
+    s5.dead && s5.fast && s5.deaths === 'crash' && s2.dead && s2.fast && s2.deaths === 'crash' && !jb.dead && jb.ctl && jb.ondead === 0 && jb.sp < 0.5 && !jb.deaths.includes('crash'), { s5, s2, jb });
+  // 2 out of its depth (death.js swamp): driven at full throttle, ticked as the game ticks; a car or a tank in water
+  // deeper than it is tall for SEA.swamp s goes under, its crew lost; the Pumo swims on; a tank fords and floods in
+  // water shallower than it is tall as ever
+  const drive = (key, e, secs) => {
+    Death.reset({}); deaths = [];
+    const v = G.craft(ctx, rows(key), TEMPLATES[key].kind, 'site'), F = fsim(v);
+    v.placeOnSurface(EARTH, R('siteAngle')(EARTH, e), ctx.VEHICLE_KINDS[v.kind].launchRot);
+    let wetAt = null, deepest = 0;
+    const n = sysCalls(() => fly(F, secs, () => { v.ctl.v = 1; if (v.splashed && wetAt == null) wetAt = F.time; if (!v.dead && v.splashed) { const f = floor(v); deepest = Math.max(deepest, f.lvl - f.bed); } return v.dead; }));
+    const H = v.bounds.maxY - v.bounds.minY;
+    return { dead: !!v.dead, wetAt: wetAt && +wetAt.toFixed(2), goneAt: v.dead ? +F.time.toFixed(2) : null, deep: +deepest.toFixed(2), H: +H.toFixed(2), ko: v.ko && v.ko.why, slow: !!(v.sea && !v.sea.fast), wreck: !!v.wreck, log: F.log.join('|'), ondead: F.ondead, sp: +v.speed().toFixed(2), flooded: !!v.flooded, gv: Object.keys(n).length };
+  };
+  const bay = drive('buggy', EARTH.sites.bay.east, 8), slip = drive('buggy', 2700, 40);
+  t(`B12 a Dune Buggy driven off the bay's shore (the water 50 m deep) and down the headland's slipway: it goes under ${bay.goneAt && (bay.goneAt - bay.wetAt).toFixed(1)} s and ${slip.goneAt && (slip.goneAt - slip.wetAt).toFixed(1)} s after it reaches the water (once the water is deeper than its ${slip.H} m), "Sunk!", the end of the drive once, no wreck standing; it never calls the ground update's code`,
+    bay.dead && bay.goneAt - bay.wetAt < 3.5 && bay.slow && bay.ko === 'hull' && !bay.wreck && bay.log === 'Sunk!' && bay.ondead === 1 && bay.gv === 0
+    && slip.dead && slip.goneAt - slip.wetAt > 3 && slip.goneAt - slip.wetAt < 12 && slip.slow && slip.log === 'Sunk!' && slip.ondead === 1 && slip.gv === 0 && !deaths.includes('ko'), { bay, slip });
+  const tk = drive('tk34', 2900, 60), pumo = drive('pumo', 2900, 60);
+  t(`B12 a TK-34 down the slipway: it fords and floods as ever while the water is shallower than its ${tk.H} m (to ${tk.deep} m), then goes under, its crew lost ("Engine flooded!", "Knocked out!"); the Pumo swims on out to sea (${pumo.sp} m/s over ${pumo.deep} m of water, never flooded)`,
+    tk.dead && tk.slow && tk.ko === 'crew' && !tk.wreck && tk.log === 'Engine flooded!|Knocked out!' && tk.ondead === 1 && tk.deep > tk.H && tk.deep < tk.H + 1
+    && !pumo.dead && !pumo.flooded && pumo.deep > 10 && pumo.sp > 2.6 && pumo.ondead === 0 && !pumo.log, { tk, pumo });
+  Death.reset({}); deaths = [];
 }
 
 t.done();

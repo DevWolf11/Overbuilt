@@ -21,7 +21,7 @@ const ctx = G.load({ props: true });
 const t = G.checks('planes: Aim, the manual law and hold');
 const D = 180 / Math.PI, dt = 1 / 120, G0 = 9.80665;
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'))[0];
-const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane' && (!only || only.split(',').includes(k)));
+const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane' && ctx.TEMPLATES[k].group !== 'ship' && (!only || only.split(',').includes(k))); // (not the ships update's flying boat: ships.test's)
 G.run(ctx, 'this.__air = airDensity; this.__sound = soundSpeed;');
 
 // de: metres further east along the track than the runway (the craft and its attitude turned with it): the sea dives start

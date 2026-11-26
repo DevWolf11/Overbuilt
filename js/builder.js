@@ -483,6 +483,143 @@ const TEMPLATES = {
     paint: { hullMBT: 'woodland', trackMBT: 'woodland', ringP: 'woodland', turretWedge: 'woodland', gun120: 'woodland', smokeL: 'woodland', skirts: 'woodland',
       cdCage: 'woodland', cdGun: 'woodland', cdJam: 'woodland', cdDetect: 'woodland' },
   },
+  // ---- the ships update's ships (kind 'ship', after the ground block): built bow-right as Armour is, hull segments end to
+  // end along x (their bottoms level), the superstructure on the deck, engines inside, screws and rudders under the stern
+  cyclon: { // (a Cyclone-class patrol ship: hull, wheelhouse, two diesels, two screws and two rudders; [WP5] finished with the
+    // existing guns (her 25 mm Bushmaster the 30 mm autocannon in a small turret on the foredeck, a heavy MG each side aft),
+    // a pole mast on the wheelhouse, a damage-control party, 10 t of fuel and ballast aft and a gunner's seat for the after
+    // MGs: 125 t, at her marks)
+    name: 'Cyclon Patrol Boat', kind: 'ship', tier: 2,
+    blurb: 'A 32 m aluminium patrol boat with two big diesels: quick, handy and cheap. A 30 mm autocannon forward and two heavy machine guns aft. Ring the telegraph up to Flank and she runs at over 30 knots.',
+    parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbBowM', 11, 0.3], ['bridgeM', 3, 3.5, 0, { att: 2 }],
+      ['dieselM', -6, -0.209, 0, { z: -0.91, att: 1 }], ['dieselM', -6, -0.209, 0, { z: 0.91, att: 1 }], // (inside the V bottom, as a tap puts them: Ship.spotOf)
+      ['screwM', -14.5, -2.9, 0, { z: -1.4, att: 0 }], ['screwM', -14.5, -2.9, 0, { z: 1.4, att: 0 }],
+      ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
+      ['ringS', 7.5, 2.21, 0, { att: 3 }], ['turretSmall', 7.5, 2.685, 0, { att: 11 }], ['ac30', 9.032, 2.685, 3, { att: 12 }],
+      ['mgHeavy', -13.6, 2.25, 3, { z: -2.6, att: 0 }], ['mgHeavy', -13.6, 2.25, 3, { z: 2.6, att: 0 }],
+      ['mastPole', 2, 8, 0, { att: 4 }], ['dcLocker', 2, -0.709, 0, { att: 2 }], ['ballast', -14, -1.131, 0, { att: 0 }],
+      ['seatGunner', -12, -1.351, 0, { att: 0 }]], // (a gunner for the after MGs: her three weapon stations, three gunners)
+    paint: { hbSternM: 'patrolWhite', hbMidM: 'patrolWhite', hbBowM: 'patrolWhite', bridgeM: 'patrolWhite', mastPole: 'patrolWhite', ringS: 'patrolWhite', turretSmall: 'patrolWhite' },
+  },
+  zodiak: { // (a 9 m rigid inflatable: two outboards, a console, a heavy MG) [WP5]
+    name: 'Zodiak RIB', kind: 'ship', tier: 1,
+    blurb: 'A fast 9 m inflatable on two big outboards: up on the plane in seconds and over 35 knots. A heavy machine gun on the console, and nothing between her crew and the bullets.',
+    parts: [['ribHull', 0, 0], ['consoleS', -1.4, 1.353, 0, { att: 0 }], ['outboard', -4.9, -0.2, 0, { z: -0.5, att: 0 }],
+      ['outboard', -4.9, -0.2, 0, { z: 0.5, att: 0 }], ['mgHeavy', -1.4, 2.303, 3, { att: 1 }], ['seatGunner', -2.6, -0.028, 0, { att: 0 }]], // (her gunner, behind the console)
+    paint: { ribHull: 'navyDark', consoleS: 'navyDark' },
+  },
+  higgens: { // (the LCVP: a plywood-and-steel box with a bow ramp, a small diesel, two MGs at the stern) [WP5]
+    name: 'Higgens Landing Craft', kind: 'ship', tier: 1,
+    blurb: 'A 12 m landing craft: twelve troops in the well and a ramp for a bow. Slow (her blunt front pushes a wall of water), but she runs right up a beach. Troops aboard take zones fast.',
+    parts: [['lcHull', 0, 0], ['consoleS', -1.4, 2.1, 0, { att: 0 }], ['dieselS', -2.8, -0.866, 0, { att: 0 }], ['screwS', -5.44, -1.752, 0, { att: 0 }],
+      ['rudderM', -6.34, -2.182, 0, { att: 0 }], ['troopBay', 1.2, -0.814, 0, { att: 0 }], ['troopBay', 3.4, -0.814, 0, { att: 0 }],
+      ['mgHeavy', -1.4, 3.05, 3, { z: -0.25, att: 1 }], ['mgHeavy', -1.4, 3.05, 3, { z: 0.25, att: 1 }],
+      ['seatGunner', -0.6, -0.917, 0, { z: -0.4, att: 0 }], ['seatGunner', -0.6, -0.917, 0, { z: 0.4, att: 0 }]], // (the troops forward in the well and two gunners for the MGs: trimmed 0.8° by the stern, as a loaded LCVP)
+    paint: { lcHull: 'navyGrey', consoleS: 'navyGrey' },
+  },
+  pegazus: { // (the Pegasus-class hydrofoil: an M hull, a bow and a main foil, a gas turbine for the waterjet and two diesels) [WP5]
+    // ([WP9] armed: a 76 mm in a gun house on the bow, two twin anti-ship launchers aft at the stern, a surface and a
+    // fire-control radar, decoys; the spec's quads and shell magazine would sink her onto her foils (212 t: her hull leaves
+    // the water at 43 kn and flies 0.2 m over a Moderate sea), so twins, and the gun's 80 ready rounds: 192 t, as WP5 tuned)
+    name: 'Pegazus Hydrofoil', kind: 'ship', tier: 3,
+    blurb: 'A 40 m hydrofoil: hullborne on her diesels she potters at 12 knots; open up the gas turbine and past 30 she rises onto her foils and flies over the waves. A 76 mm gun forward and four anti-ship missiles aft.',
+    parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbMidM', 10, 0], ['hbBowM', 19, 0.3], ['bridgeM', 9, 3.5, 0, { att: 3 }],
+      ['foilBow', 18.6, -3.75, 0, { att: 4 }], ['foilAft', -5, -3.8, 0, { att: 1 }], ['turbine', -6, -0.05, 0, { att: 1 }],
+      ['dieselS', 2, -1.234, 0, { z: 0.46, att: 2 }], ['dieselS', 2, -1.234, 0, { z: -0.46, att: 2 }], ['dieselS', 0.3, -1.37, 0, { att: 2 }],
+      ['waterjet', -15.16, -1.35, 0, { att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
+      ['mastPole', 8.5, 8, 0, { att: 5 }], ['ballast', -11.53, -1.193, 0, { att: 0 }],
+      ['nRingM', 21.3, 2.65, 0, { att: 4 }], ['nHouse127', 21.3, 4.3, 0, { att: 17 }], ['nGun76', 25.154, 4.3, 3, { att: 18 }],
+      ['asm2', -13, 2.9, 0, { att: 0 }], ['asm2', -6.5, 2.9, 0, { att: 1 }], ['nRadarSea', 8.5, 11.3, 0, { att: 15 }],
+      ['nRadarFC', 9.5, 5.6, 0, { att: 5 }], ['decoy', 5.9, 2.5, 0, { z: 3, att: 2 }], ['decoy', 5.9, 2.5, 0, { z: -3, att: 2 }],
+      ['seatGunner', 4, -1.442, 0, { att: 2 }]],
+    paint: { hbSternM: 'navyGrey', hbMidM: 'navyGrey', hbBowM: 'navyGrey', bridgeM: 'navyGrey', mastPole: 'navyGrey' },
+  },
+  osca: { // (an Osa-class missile boat: an M hull, three diesels and three screws) [WP5] ([WP9] armed: two twin anti-ship launchers
+    // amidships, angled over the bow, a 30 mm in a small turret ring at each end, a surface radar on her mast and a fire-control
+    // radar on her wheelhouse, decoys, three gunners' seats)
+    name: 'Osca Missile Boat', kind: 'ship', tier: 2,
+    blurb: 'A 40 m missile boat on three big diesels: fast and low, built to dash in, fire four anti-ship missiles and run. A 30 mm gun at each end and a surface radar on her mast.',
+    parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbMidM', 10, 0], ['hbBowM', 19, 0.3], ['bridgeM', 9, 3.5, 0, { att: 3 }],
+      ['dieselM', -6, -0.333, 0, { z: 0.91, att: 1 }], ['dieselM', -6, -0.333, 0, { z: -0.91, att: 1 }], ['dieselM', 2, -0.63, 0, { att: 2 }],
+      ['screwM', -14.46, -2.902, 0, { z: 1.4, att: 0 }], ['screwM', -14.46, -2.902, 0, { z: -1.4, att: 0 }], ['screwM', -12.4, -3.025, 0, { att: 0 }],
+      ['rudderM', -15.51, -2.669, 0, { z: 1.4, att: 0 }], ['rudderM', -15.51, -2.669, 0, { z: -1.4, att: 0 }], ['mastPole', 8.5, 8, 0, { att: 5 }],
+      ['magazine', 11.97, -0.111, 0, { att: 3 }], ['dcLocker', 4.97, -0.709, 0, { att: 2 }], ['ballast', -11.53, -1.193, 0, { att: 0 }],
+      ['ringS', 23.05, 2.675, 0, { att: 4 }], ['ringS', -10.5, 2.1, 0, { att: 0 }], ['ac30', -9.668, 2.35, 3, { att: 19 }],
+      ['ac30', 23.882, 2.925, 3, { att: 18 }], ['asm2', 3.5, 2.9, 0, { z: 2.2, att: 2 }], ['asm2', 3.5, 2.9, 0, { z: -2.2, att: 2 }],
+      ['nRadarSea', 8.5, 11.3, 0, { att: 14 }], ['nRadarFC', 9.5, 5.6, 0, { att: 5 }], ['decoy', -0.1, 2.5, 0, { z: 3, att: 2 }],
+      ['decoy', -0.1, 2.5, 0, { z: -3, att: 2 }], ['seatGunner', -0.25, -1.442, 0, { att: 2 }], ['seatGunner', -1.25, -1.442, 0, { att: 2 }],
+      ['seatGunner', 4, -1.017, 0, { z: 1.36, att: 2 }]],
+    paint: { hbSternM: 'navySplinter', hbMidM: 'navySplinter', hbBowM: 'navySplinter', bridgeM: 'navySplinter', mastPole: 'navySplinter' },
+  },
+  vizby: { // (a Visby-class corvette: an L hull under a faceted superstructure, a turbine and two diesels on two waterjets, a
+    // helicopter deck aft) [WP5] ([WP9] armed: a 57 mm in a gun house on the bow, two twin anti-ship launchers (two, not the
+    // spec's quads: her money tier), torpedo tubes either side, her three radars flat on the superstructure's roof, decoys)
+    name: 'Vizby Stealth Corvette', kind: 'ship', tier: 3,
+    blurb: 'A 72 m stealth corvette: flat slanted walls that radars barely see, waterjets that turn her on a coin, a helicopter deck aft. A 57 mm gun, four anti-ship missiles and torpedo tubes either side.',
+    parts: [['hbSternL', -25, 0], ['hbMidL', -8, 0], ['hbMidL', 8, 0], ['hbBowL', 27, 0.6], ['stealthHouse', 3, 6.057, 0, { att: 2 }],
+      ['turbine', -8, -1.299, 0, { att: 1 }], ['dieselM', 2, -1.645, 0, { z: 0.91, att: 2 }], ['dieselM', 2, -1.645, 0, { z: -0.91, att: 2 }],
+      ['waterjet', -32.84, -2.15, 0, { z: -1.6, att: 0 }], ['waterjet', -32.84, -2.15, 0, { z: 1.6, att: 0 }], ['helipad', -24, 3.2, 0, { att: 0 }],
+      ['magazine', 13.97, -1.462, 0, { att: 2 }], ['dcLocker', 8, -1.886, 0, { att: 2 }],
+      ['nRingM', 35.3, 4.217, 0, { att: 3 }], ['nHouse127', 35.3, 5.867, 0, { att: 13 }], ['nGun57', 38.962, 5.867, 3, { att: 14 }],
+      ['asm2', 21, 4.136, 0, { z: 3.857, att: 3 }], ['asm2', 21, 4.136, 0, { z: -3.857, att: 3 }], ['torpTube', -13.7, 3.4, 0, { z: 5, att: 1 }],
+      ['torpTube', -13.7, 3.4, 0, { z: -5, att: 1 }], ['nRadarAir', 3, 9.657, 0, { att: 4 }], ['nRadarSea', 6.25, 9.357, 0, { att: 4 }],
+      ['nRadarFC', 0.25, 9.657, 0, { att: 4 }], ['decoy', -32.6, 3.5, 0, { z: 4.733, att: 0 }], ['decoy', -32.6, 3.5, 0, { z: -4.733, att: 0 }],
+      ['seatGunner', -12.5, -2.491, 0, { att: 1 }], ['seatGunner', -13.5, -2.491, 0, { att: 1 }], ['seatGunner', -14.5, -2.491, 0, { att: 1 }]], // (her gunners aft by the tubes)
+    paint: { hbSternL: 'navyDark', hbMidL: 'navyDark', hbBowL: 'navyDark', stealthHouse: 'navyDark' },
+  },
+  olivar: { // (an Oliver Hazard Perry frigate: an X hull, two turbines on one big screw, a hangar and a helicopter deck) [WP5]
+    // ([WP9] armed: a 76 mm on the bow (her real one stands on the deckhouse, where the funnel leaves no room for its barrel),
+    // two eight-cell launchers forward for her single-arm one, a quad anti-ship launcher aft, a close-in gun on the hangar,
+    // torpedo tubes either side, air and surface radars on her masts, two fire-control radars on the bridge, decoys)
+    name: 'Olivar Perri Frigate', kind: 'ship', tier: 3,
+    blurb: 'A 108 m frigate on two gas turbines and a single big propeller, with a hangar and a deck for a helicopter. A 76 mm gun, sixteen SAM cells, four anti-ship missiles, torpedoes and a close-in gun on the hangar.',
+    parts: [['hbSternX', -37, 0], ['hbMidX', -12, 0], ['hbMidX', 12, 0], ['hbBowX', 41, 0.5], ['bridgeL', 26, 9.191, 0, { att: 3 }],
+      ['deckhouseL', 14, 8, 0, { att: 2 }], ['deckhouseL', 0, 8, 0, { att: 1 }], ['mastLattice', 24, 19.691, 0, { att: 4 }],
+      ['mastLattice', -3, 17.5, 0, { att: 6 }], ['funnel', 12, 13.5, 0, { att: 5 }], ['hangar', -19, 8.5, 0, { att: 1 }],
+      ['helipad', -39, 5.7, 0, { att: 0 }], ['turbine', -10, -3.711, 0, { z: 1.51, att: 1 }], ['turbine', -10, -3.711, 0, { z: -1.51, att: 1 }],
+      ['screwL', -46.85, -6.052, 0, { att: 0 }], ['rudderL', -49.5, -6.038, 0, { att: 0 }], ['magazine', 30, -4.074, 0, { att: 3 }],
+      ['dcLocker', 10, -4.355, 0, { z: 1.01, att: 2 }], ['dcLocker', 10, -4.355, 0, { z: -1.01, att: 2 }], ['pump', -5, -4.94, 0, { att: 1 }],
+      ['bulkhead', -0.18, -4.412, 0, { att: 1 }], ['bulkhead', 23.82, -4.412, 0, { att: 2 }],
+      ['nRingM', 55.3, 7.09, 0, { att: 3 }], ['nHouse127', 55.3, 8.74, 0, { att: 22 }], ['nGun76', 59.154, 8.74, 3, { att: 23 }],
+      ['ciws', -19, 13.6, 0, { att: 10 }], ['vls8', 45, 5.055, 0, { att: 3 }], ['vls8', 48.4, 5.237, 0, { att: 3 }], ['asm4', -28, 6.7, 0, { att: 0 }],
+      ['torpTube', -26.7, 5.9, 0, { z: 7.474, att: 0 }], ['torpTube', -26.7, 5.9, 0, { z: -7.474, att: 0 }], ['nRadarAir', 24, 27.291, 0, { att: 7 }],
+      ['nRadarSea', -3, 24.8, 0, { att: 8 }], ['nRadarFC', 26.25, 13.291, 0, { att: 4 }], ['nRadarFC', 27.5, 13.291, 0, { att: 4 }],
+      ['decoy', -29.1, 6, 0, { z: 7.466, att: 0 }], ['decoy', -29.1, 6, 0, { z: -7.466, att: 0 }], ['seatGunner', 4, -4.999, 0, { att: 2 }],
+      ['seatGunner', 5, -4.999, 0, { att: 2 }]],
+    paint: { hbSternX: 'navyGrey', hbMidX: 'navyGrey', hbBowX: 'navyGrey', bridgeL: 'navyGrey', deckhouseL: 'navyGrey', mastLattice: 'navyGrey', funnel: 'navyGrey', hangar: 'navyGrey' },
+  },
+  arley: { // (an Arleigh Burke destroyer: an X hull, four turbines on two screws, a helicopter deck aft) [WP5] ([WP9] armed: a
+    // 127 mm in a gun house on the bow, eight-cell launchers fore and aft, a quad anti-ship launcher amidships, a close-in gun
+    // on the after deckhouse, a torpedo tube, an air radar on the mast, a surface and a fire-control radar on the bridge (one,
+    // not the spec's two: her money tier, with one pump fewer), decoys)
+    name: 'Arley Berk Destroyer', kind: 'ship', tier: 3,
+    blurb: 'A 156 m destroyer, 8,000 tonnes, four gas turbines on two propellers: the biggest thing afloat in a battle. A 127 mm gun, sixteen SAM cells, four anti-ship missiles, a close-in gun and torpedoes.',
+    parts: [['hbSternX', -61, 0], ['hbMidX', -36, 0], ['hbMidX', -12, 0], ['hbMidX', 12, 0], ['hbMidX', 36, 0], ['hbBowX', 65, 0.5],
+      ['bridgeL', 42, 9, 0, { att: 4 }], ['deckhouseL', 28, 8, 0, { att: 4 }], ['deckhouseL', -12, 8, 0, { att: 2 }],
+      ['mastLattice', 39, 19.5, 0, { att: 6 }], ['funnel', 26, 13.5, 0, { att: 7 }], ['funnel', -10, 13.5, 0, { att: 8 }],
+      ['helipad', -63, 5.7, 0, { att: 0 }], ['turbine', -28.03, -3.711, 0, { z: 1.51, att: 1 }], ['turbine', -28.03, -3.711, 0, { z: -1.51, att: 1 }],
+      ['turbine', -36.25, -3.711, 0, { z: 1.51, att: 1 }], ['turbine', -36.25, -3.711, 0, { z: -1.51, att: 1 }],
+      ['screwL', -70.85, -6.052, 0, { z: 3.2, att: 0 }], ['screwL', -70.85, -6.052, 0, { z: -3.2, att: 0 }],
+      ['rudderL', -73.5, -6.038, 0, { z: 3.2, att: 0 }], ['rudderL', -73.5, -6.038, 0, { z: -3.2, att: 0 }], ['magazine', 52, -4.083, 0, { att: 5 }],
+      ['magazine', -45.97, -4.106, 0, { att: 1 }], ['dcLocker', -1.03, -4.412, 0, { att: 2 }], ['pump', -12, -4.911, 0, { att: 2 }],
+      ['bulkhead', -40.43, -4.412, 0, { att: 1 }], ['bulkhead', -2.18, -4.412, 0, { att: 2 }], ['bulkhead', 23.82, -4.412, 0, { att: 3 }],
+      ['bulkhead', 47.82, -4.412, 0, { att: 4 }], ['nRingM', 79.3, 7.09, 0, { att: 5 }], ['nHouse127', 79.3, 8.74, 0, { att: 29 }],
+      ['nGun127', 83.794, 8.74, 3, { att: 30 }], ['vls8', 62, 4.736, 0, { att: 5 }], ['vls8', -72.4, 4.3, 0, { att: 0 }],
+      ['asm4', -22, 6.7, 0, { att: 2 }], ['ciws', -13.75, 12.6, 0, { att: 8 }], ['torpTube', -20.7, 5.9, 0, { z: 7.5, att: 2 }],
+      ['nRadarAir', 39, 27.1, 0, { att: 9 }], ['nRadarSea', 42, 12.8, 0, { att: 6 }], ['nRadarFC', 44, 13.1, 0, { att: 6 }],
+      ['decoy', -23.1, 6, 0, { z: 7.5, att: 2 }], ['decoy', -23.1, 6, 0, { z: -7.5, att: 2 }], ['seatGunner', 4, -4.999, 0, { att: 3 }]],
+    paint: { hbSternX: 'navyGrey', hbMidX: 'navyGrey', hbBowX: 'navyGrey', bridgeL: 'navyGrey', deckhouseL: 'navyGrey', mastLattice: 'navyGrey', funnel: 'navyGrey' },
+  },
+  catalyna: { // (a PBY Catalina: a plane built on a flying-boat hull, wingtip floats, two radial engines, a torpedo and two MGs;
+    // kind plane, filed under Ships in the hangar: group) [WP5]
+    name: 'Catalyna Flying Boat', kind: 'plane', tier: 2, group: 'ship',
+    blurb: 'A flying boat: she starts on the water, floats on her hull and wingtip floats, runs up onto the step at full throttle and lifts off. A torpedo under her wing and two guns in the bow.',
+    parts: [['stepHull', 0, 0, 1], ['cockpit', -2.6, 5.5, 0, { att: 0 }], ['wingStraightL', -1.85, 1, 0, { att: 0 }],
+      ['propL', -1.85, 3.4, 0, { z: -3.2, att: 2 }], ['propL', -1.85, 3.4, 0, { z: 3.2, att: 2 }], ['pontoon', 0.18, 1, 1, { z: -12.6, att: 2 }],
+      ['pontoon', 0.18, 1, 1, { z: 12.6, att: 2 }], ['vtailL', -2.45, -7, 0, { att: 0 }], ['elevatorL', -3.83, -7.6, 0, { att: 7 }],
+      ['torpedo', -1.2, 0.8, 0, { z: 2.6, att: 2 }], ['gun', -1.78, 7.9, 0, { z: -0.4, att: 0 }], ['gun', -1.78, 7.9, 0, { z: 0.4, att: 0 }]],
+    paint: { stepHull: 'navyGrey', cockpit: 'navyGrey', wingStraightL: 'navyGrey', pontoon: 'navyGrey', vtailL: 'navyGrey', elevatorL: 'navyGrey' },
+  }
 };
 
 // A template's parts as design rows (extras: z, att, skin, mm).
@@ -500,6 +637,17 @@ function groundClass(t) {
   if (gun && (!has((d) => d.ring) || has((d) => d.style === 'open'))) return 'Tank destroyer'; // (a casemate gun, or a big gun in an open-topped turret)
   return gun && has((d) => d.awheel) ? 'Armoured car' : 'Tank';
 }
+// What class of ship a stock one is, for the hangar (§7, from its hull parts): a boat (under 25 m), a patrol boat (25-60
+// m), an escort (60-120 m and under 3,000 t), a destroyer (the rest); a craft of another kind on a hull (the flying boat)
+// after them. { name, rank (the hangar's order), len (m), t (tonnes), cost }
+const SHIP_CLASSES = ['Boat', 'Patrol boat', 'Escort', 'Destroyer', 'Flying boat'];
+function shipClass(t) {
+  const ps = partsFromDesign(templateRows(t));
+  let x0 = Infinity, x1 = -Infinity, kg = 0;
+  for (const p of ps) { kg += partKg(p); if (p.def.shull) { const R = partRect(p); x0 = Math.min(x0, R.l); x1 = Math.max(x1, R.r); } }
+  const len = x1 > x0 ? x1 - x0 : 0, tn = kg / 1000, rank = t.kind !== 'ship' ? 4 : len < 25 ? 0 : len < 60 ? 1 : len < 120 && tn < 3000 ? 2 : 3;
+  return { name: SHIP_CLASSES[rank], rank, len, t: tn, cost: designCost(ps) };
+}
 function templateRows(t) {
   return t.parts.map(([type, x, y, rot, o = {}]) => {
     const q = { type, x, y, flip: x < 0, rot: rot || 0 }, skin = o.skin || (t.paint && t.paint[type]);
@@ -511,21 +659,21 @@ function templateRows(t) {
   });
 }
 // The tab each kind of craft opens on.
-const KIND_TAB = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng', tank: 'hulls', drone: 'drFrame' };
+const KIND_TAB = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng', tank: 'hulls', drone: 'drFrame', ship: 'shHull' };
 
 // The tray's order: the stock parts as they come, then each look-alike jet's parts together, the jets by
 // generation as TEMPLATES lists them. A part belongs to the jet its name gives (FS-22 Wing), else to the first
 // jet that carries it (the IRST ball to the MyG-29). A retired part (def.retired: the small turret) is left out: old
 // designs keep it, but the tray no longer offers it. The armour parts go by their era (def.family), oldest first.
 // Worked out once.
-const PART_ERAS = ['WWII', 'Cold War', 'Modern', 'AA', 'Drones']; // (Drones: the bays and counter-drone kit, last in Launchers and Kit)
+const PART_ERAS = ['WWII', 'Cold War', 'Modern', 'AA', 'Drones', 'Boats', 'Escorts', 'Destroyers', 'Naval']; // (Drones: the bays and counter-drone kit, last in Launchers and Kit; then the ships update's, by size)
 // (the groups parts name for themselves, def.tray, in this order: the radar's, then the Drone kind's four tabs')
 const TRAY_ORDER = ['Inside a nose', 'Outside', 'Controllers', 'Multirotor', 'Fixed wing', 'Motors', 'Batteries', 'Links', 'Cameras', 'Warheads', 'Drops', 'Missiles'];
 let PART_FAMILIES = null;
 function partFamilies() {
   if (PART_FAMILIES) return PART_FAMILIES;
-  const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru|us4|us5)/.test(r[0])));
-  for (const t of jets) for (const [type] of t.parts) if (/^(ru|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name);
+  const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru[A-Z0-9]|us4|us5)/.test(r[0])));
+  for (const t of jets) for (const [type] of t.parts) if (/^(ru[A-Z0-9]|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name); // [WP5] (ru then a capital: the look-alike jets' parts, not the ships' rudders)
   for (const type in PARTS) { const m = /^(FS|MyG|Sugoi)-\d+/.exec(PARTS[type].name); if (m && jets.some((t) => t.name === m[0])) of.set(type, m[0]); }
   const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS).filter((k) => !PARTS[k].retired);
   for (const k of keys) { const f = PARTS[k].family; if (f && !of.has(k)) { of.set(k, f); rank.set(f, jets.length + 1 + Math.max(0, PART_ERAS.indexOf(f))); } }
@@ -669,7 +817,7 @@ const Builder = {
   serialize() { const d = { name: this.name, kind: this.kind, parts: designRows(this.parts) }; if (this.droneChoice && this.parts.some((p) => p.def.dock)) d.drone = this.droneChoice; return d; },
   // the bays' drone a design names, cleaned (Drone.cleanChoice), when it has a bay aboard; else null
   choiceIn(d, ps) { return d && d.drone && typeof Drone !== 'undefined' && (ps || partsFromDesign(d.parts)).some((p) => p.def.dock) ? Drone.cleanChoice(d.drone) : null; },
-  save() { if (typeof MP !== 'undefined' && MP.savedCareer) return; store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); }, // (not while a match borrows the builder)
+  save() { if (typeof MP !== 'undefined' && MP.borrowed) return; store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); }, // (not while a match borrows the builder)
   loadDesign(d, keepHistory) {
     this.parts = partsFromDesign(d.parts);
     this.droneChoice = d.drone && typeof Drone !== 'undefined' ? Drone.cleanChoice(d.drone) : null;
@@ -694,12 +842,12 @@ const Builder = {
     this.savedAs = null;
     this.loadDesign({ name: t.name, kind: t.kind, parts: templateRows(t) });
   },
-  // Symmetry. Planes, armour and drones mirror left and right (across the blueprint), rockets turn half round the stack,
+  // Symmetry. Planes, armour, drones and ships mirror left and right (across the blueprint), rockets turn half round the stack,
   // cars and helicopters mirror front and back. The pose of the mirror copy of a part, or null when it sits on
   // the mirror line (or is a pair or a wing already).
   mirrorOf(q) {
     const def = PARTS[q.type], rot = q.rot || 0, z = partZ({ def, z: q.z });
-    if (this.kind === 'plane' || this.kind === 'tank' || this.kind === 'drone') return def.twinZ || zLocked(def) || Math.abs(z) < 0.01 ? null : { x: q.x, y: q.y, z: -z, rot };
+    if (this.kind === 'plane' || this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship') return def.twinZ || zLocked(def) || Math.abs(z) < 0.01 ? null : { x: q.x, y: q.y, z: -z, rot };
     const zz = this.kind === 'rocket' && !def.twinZ ? -z : z;
     if (Math.abs(q.x) < 0.01 && Math.abs(zz - z) < 0.01) return null;
     return { x: -q.x, y: q.y, z: zz, rot: mirrorRot(rot) };
@@ -755,14 +903,16 @@ const Builder = {
     }
     this.col = la ? { x: lx / la, y: ly / la } : null;
     const vStall = (cl) => (cl > 0 ? Math.sqrt((2 * mass * G0) / (1.225 * cl)) : 0);
-    const locked = this.parts.filter((p) => !Career.unlocked(p.def));
     this.statsData = {
       mass, thrust, twr: thrust / (mass * EARTH.surfaceG || 1), dv: dv.total, perStage: dv.perStage, stageTwr: dv.twr,
-      loose: this.parts.length - ps.length, cost: designCost(ps), locked, fuel: ps.reduce((f, p) => f + p.fuel, 0),
+      loose: this.parts.length - ps.length, cost: designCost(ps), fuel: ps.reduce((f, p) => f + p.fuel, 0),
       air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps), ...(() => { const w = wingStrength(ps); return { g: mass ? w.S / (mass * G0) : 0, vne: w.vne, mmax: w.mmax }; })() },
     };
     this.statsData.radar = radarSummary(ps); // (the radar row and the Fit button)
     this.statsData.drone = this.kind === 'drone' && typeof Drone !== 'undefined' ? Drone.stats(ps) : null; // (the big update: a drone's numbers)
+    // (the ships update) a ship's float, speed and stability: the parts joined to the bridge, or with no bridge yet, all of
+    // them (the hull's waterline shows as soon as a segment is down)
+    this.statsData.ship = this.kind === 'ship' && typeof Ship !== 'undefined' ? Ship.stats(this.ctrl ? ps : this.parts) : null;
     this.groundStats(ps, adj);
     this.renderTools();
     this.renderStats();
@@ -821,6 +971,8 @@ const Builder = {
   // The blueprint's unit of size: 1 m, and 0.1 m for a drone (the big update: a motor is 20 cm), so its zoom, grid, snap
   // reach and nudges are a tenth of a craft's. Every other kind is unchanged.
   unit() { return this.kind === 'drone' ? 0.1 : 1; },
+  // The fit's closest zoom out (px a metre): 5, and 1.2 for a ship (the ships update: a 152 m destroyer fits a 360 px phone)
+  zoomMin() { return this.kind === 'ship' ? 1.2 : 5; },
   // The parts under a blueprint point, the one drawn on top first (the near side, then pods, wings and
   // tail surfaces, the hull, then legs, fins and wheels), so a wing through the fuselage can be picked where
   // they cross; parts at different depths behind one another follow.
@@ -848,7 +1000,7 @@ const Builder = {
     }
     const area = this.viewArea(), u = this.unit(); // (a drone is a tenth the size: a tenth of the margin, ten times the zoom)
     const scale = Math.min(area.w / (r - l + 6 * u), area.h / (t - b + 4 * u));
-    this.cam.scale = clamp(scale, 5, 60 / u);
+    this.cam.scale = clamp(scale, this.zoomMin(), 60 / u);
     this.cam.x = (l + r) / 2 - (area.cx - innerWidth / 2) / this.cam.scale;
     this.cam.y = (b + t) / 2 + (area.cy - innerHeight / 2) / this.cam.scale;
   },
@@ -863,9 +1015,13 @@ const Builder = {
     let left = 0;
     if (innerWidth > 760) left = $('#stats').getBoundingClientRect().right;
     let right = innerWidth;
-    if (this.kind === 'tank' || this.kind === 'drone') { // (P4 play-test) Armour (and drones): clear of the Select/Grid/Fit column on the right (a tank's long gun went under it)
+    if (this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship') { // (P4 play-test) Armour (and drones, ships): clear of the Select/Grid/Fit column on the right (a tank's long gun went under it)
       const f = $('.fit-col').getBoundingClientRect();
-      if (f.width > 0 && f.top < bottom && f.bottom > top && f.left > left + 120) right = f.left - 6;
+      if (f.width > 0 && f.top < bottom && f.bottom > top && f.left > left + 120) {
+        // (the ships update) a ship is long and low: above the column, the whole width, while that leaves her room enough
+        if (this.kind === 'ship' && f.top - 6 - top >= 0.45 * (bottom - top)) bottom = f.top - 6;
+        else right = f.left - 6;
+      }
     }
     const a = { w: right - left, h: bottom - top, cx: (left + right) / 2, cy: (top + bottom) / 2 };
     if (this.keepArea && !$('#build-ui').hidden) this.area = a;
@@ -1103,7 +1259,6 @@ const Builder = {
   // paint of what it is put on (a wing on a stealth fuselage comes in stealth grey).
   addPart(type, x, y, rot = 0, ex = {}) {
     const def = PARTS[type];
-    if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
     const att = ex.att || null, host = ex.host || att;
     const skin = ex.skin !== undefined ? cleanSkin(ex.skin, def) : host ? cleanSkin(skinOf(host), def) : null;
     const p = makePart(type, x, y, { flip: x < 0, rot, z: cleanZ(ex.z, def), att: att ? att.id : null, skin }), mm = cleanMm(ex.mm, def);
@@ -1173,7 +1328,7 @@ const Builder = {
     const m = p.mirror;
     const H = this.hosts();
     if (this.kidsOf([p, m].filter(Boolean), H).length) { // with what hangs on it (and its twin, turned the mirrored way)
-      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' || this.kind === 'tank' ? 1 : -1]] : [[p, 1]], H);
+      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' || this.kind === 'tank' || this.kind === 'ship' ? 1 : -1]] : [[p, 1]], H);
       return;
     }
     const k = ((p.rot || 0) + 1) & 3, ignore = [p, m].filter(Boolean);
@@ -1383,8 +1538,8 @@ const Builder = {
   // they can be dragged into place. Parts keep their depth, paint and what they hang on among themselves.
   paste(clip = this.clip) {
     if (!clip || !clip.parts || !clip.parts.length) { UI.toast('Nothing copied yet'); return; }
-    const all = partsFromDesign(clip.parts), made = cleanAtt(all.filter((p) => Career.unlocked(p.def)));
-    if (!made.length) { UI.toast(all.length ? 'Those parts aren’t unlocked yet' : 'Nothing copied yet'); return; }
+    const made = cleanAtt(partsFromDesign(clip.parts));
+    if (!made.length) { UI.toast('Nothing copied yet'); return; }
     let b = -Infinity, t = Infinity;
     for (const p of made) { const r = partRect(p); b = Math.max(b, r.t); t = Math.min(t, r.b); }
     const h = b - t, src = made.map((p) => ({ x: p.x, y: p.y }));
@@ -1460,20 +1615,19 @@ const Builder = {
       if (def.cat !== this.category) continue;
       const g = fam.of.get(type) || null;
       if (g !== group) { group = g; if (g) items.append(el('div', { class: 'tray-group', text: g })); } // (each look-alike jet's parts together)
-      const locked = !Career.unlocked(def);
-      const item = el('button', { class: 'part-item' + (locked ? ' locked' : ''), title: def.desc || def.name });
+      const item = el('button', { class: 'part-item', title: def.desc || def.name });
       item.append(renderPartIcon(type, 56, dpr, this.viewRot)); // drawn the way the blueprint shows it
       item.append(el('span', { class: 'part-name', text: def.name }));
-      item.append(el('span', { class: 'part-spec', text: locked ? `Tier ${def.tier}` : this.specLine(def) }));
-      if (!Career.sandbox && !locked) item.append(el('span', { class: 'part-cost', text: money(def.cost) }));
-      if (locked) item.append(el('span', { class: 'lock', text: 'Locked' }));
-      this.bindPaletteItem(item, type, locked);
+      item.append(el('span', { class: 'part-spec', text: this.specLine(def) }));
+      if (Budget.on) item.append(el('span', { class: 'part-cost', text: money(def.cost) })); // (prices only in a battle with a budget)
+      this.bindPaletteItem(item, type);
       items.append(item);
     }
     this.layout();
   },
 
   specLine(def) {
+    if (def.ship && typeof Ship !== 'undefined') { const l = Ship.line(def); if (l) return l; } // (the ships update: a ship part's own line, in knots)
     if (def.gv) {
       const w = def.weapon, A = def.armour, r = def.searchRadar || def.trackRadar;
       // (the big update) drone bays and counter-drone kit
@@ -1516,11 +1670,11 @@ const Builder = {
     return kg < 1 ? `${Math.round(kg * 1000)} g` : `${+kg.toFixed(1)} kg`;
   },
 
-  bindPaletteItem(item, type, locked) {
+  bindPaletteItem(item, type) {
     let start = null;
     item.addEventListener('pointerdown', (e) => { start = { x: e.clientX, y: e.clientY, id: e.pointerId, drag: false }; });
     item.addEventListener('pointermove', (e) => {
-      if (!start || start.id !== e.pointerId || locked) return;
+      if (!start || start.id !== e.pointerId) return;
       const dx = e.clientX - start.x, dy = e.clientY - start.y;
       if (!start.drag && ((dy < -8 && Math.abs(dy) > Math.abs(dx) * 0.8) || (!isTouch && Math.hypot(dx, dy) > 6))) {
         start.drag = true;
@@ -1536,21 +1690,11 @@ const Builder = {
       const wasDrag = start.drag;
       start = null;
       if (e.type === 'pointercancel') { this.cancelDrag(); return; }
-      if (locked) { this.showLocked(type); return; }
       if (wasDrag) this.dropDrag(e.clientY);
       else { this.cancelDrag(); this.quickAdd(type); }
     };
     item.addEventListener('pointerup', end);
     item.addEventListener('pointercancel', end);
-  },
-
-  showLocked(type) {
-    const d = PARTS[type];
-    UI.modal({
-      kicker: `Tier ${d.tier} · ${TIERS[d.tier].name}`, title: d.name,
-      body: `<p>${d.desc}</p><p class="muted">Unlock it in Research &amp; Development.</p>`,
-      actions: [{ label: 'Close' }, { label: 'Open R&D', primary: true, onClick: () => App.showResearch() }],
-    });
   },
 
   // Tap on a palette item: attach it somewhere sensible (on armour, where the part goes on a tank: tankSpot; on a drone,
@@ -1566,6 +1710,14 @@ const Builder = {
       const s = this.droneSpot(type, centre);
       if (s && s.why) { UI.toast(s.why); return; }
       spot = s;
+    }
+    if (this.kind === 'ship' && typeof Ship !== 'undefined') { // (the ships update) hull segments end to end, the rest on, in and under them (Ship.spotOf)
+      const s = Ship.spotOf(type, this.parts, { x: centre.x, y: centre.y, sym: this.symmetry, rot });
+      if (s && s.why) { UI.toast(s.why); return; }
+      if (s && s.shift) { // (a midsection in behind the bow: the bow, and what is on it, forward first)
+        if (!this.shift(s.shift.parts, s.shift.dx, s.shift.dy)) { UI.toast('No room there. Drag the part into place instead.'); return; }
+      }
+      spot = s || (def.gv && def.place ? this.tankSpot(type, centre) : null); // (a gun house's guns and roof kit as on a tank)
     }
     // (armour with a hull or turret already: a part with nowhere of its kind left goes nowhere odd either)
     if (!spot && this.kind === 'tank' && def.place && this.parts.some((p) => p.def.place === 'hull' || p.def.place === 'ring')) { UI.toast('No room for it there. Drag the part into place instead.'); return; }
@@ -1617,7 +1769,7 @@ const Builder = {
     if (!spot && this.parts.length) { const s = this.snap(type, centre, [], rot, Infinity); spot = s.ok && s.attached ? s : null; }
     if (!spot) { UI.toast('No room there. Drag the part into place instead.'); return; }
     this.addPart(type, spot.x, spot.y, spot.rot ?? rot, { z: spot.z, att: spot.att, host: spot.host });
-    if ((this.kind === 'tank' || this.kind === 'drone') && !this.in3D()) this.keepInView(); // (the tank seen taking shape, not under the part's card)
+    if ((this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship') && !this.in3D()) this.keepInView(this.kind === 'ship'); // (the tank seen taking shape, not under the part's card)
   },
   // Where a tapped part goes on a drone (droneSpotOf, above): a pose, { why } for a toast, or null (today's rules).
   droneSpot(type, at) { return droneSpotOf(type, this.parts, at); },
@@ -1641,7 +1793,6 @@ const Builder = {
     for (const H of hosts) {
       const s = insideSpot(type, rot, H, null, others, fwd);
       if (!s) continue;
-      if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
       if (old) this.parts = this.parts.filter((p) => p !== old && p.att !== old.id); // (out with the old one: one step to undo, with the new one in)
       this.addPart(type, s.x, s.y, rot, { z: s.z, att: H, host: H });
       if (!this.in3D()) { // (the nose seen, not under the set's card or a button: the set brought to the middle if it is)
@@ -1663,16 +1814,21 @@ const Builder = {
   },
 
   // Fit the view if any part is outside the room the panels leave it (on a phone: above the part's card). 2D.
-  keepInView() {
+  // (the ships update) centred: also when the craft has grown well off the middle of the view (a ship grows a segment at a
+  // time, bow forward and stern aft, and was left at one side with the other empty)
+  keepInView(centred) {
     this.area = null;
     const a = this.viewArea(), x0 = a.cx - a.w / 2, y0 = a.cy - a.h / 2, c = this.canvas.getBoundingClientRect(), k = this.cam.scale;
+    let l = Infinity, r = -Infinity;
     for (const p of this.parts) {
       const R = partRect(p);
       for (const [x, y] of [[R.l, R.b], [R.r, R.b], [R.l, R.t], [R.r, R.t]]) {
         const d = this.toDisp(x, y), sx = c.left + c.width / 2 + (d.x - this.cam.x) * k, sy = c.top + c.height / 2 - (d.y - this.cam.y) * k;
         if (sx < x0 || sx > x0 + a.w || sy < y0 || sy > y0 + a.h) { this.fitView(); return; }
+        l = Math.min(l, sx); r = Math.max(r, sx);
       }
     }
+    if (centred && r > l && Math.abs((l + r) / 2 - a.cx) > 0.15 * a.w) this.fitView();
   },
 
   // ---------------------------------------------------------------- armour (the ground update)
@@ -1683,7 +1839,7 @@ const Builder = {
     // a radar that looks one way faces the craft's nose (planes and rockets unturned, helicopters, cars and Armour a
     // quarter turn); a tail set faces back
     if (def && def.radarSet && def.radarSet.cone < 180) { const F = (PILOT[kind] || PILOT.rocket).F, r = F.x > 0.5 ? 3 : F.x < -0.5 ? 1 : F.y < -0.5 ? 2 : 0; return (r + (def.radarSet.warn ? 2 : 0)) & 3; }
-    return def && def.aim && isGround(kind) ? 3 : 0;
+    return def && def.aim && (isGround(kind) || isSea(kind)) ? 3 : 0; // (a ship's guns as a tank's)
   },
   // A hull's or turret's side outline in part space, turned as the part is (counter-clockwise): def.outline, else its box.
   outlineOf(p) {
@@ -1914,7 +2070,7 @@ const Builder = {
   // (each null while it can't say), and the turrets' traverse and depression sweep, 150 ms after the last edit. Other
   // craft never come here.
   groundStats(ps, adj) {
-    const on = this.kind === 'tank' || (this.kind === 'car' && ps.some((p) => p.def.gv));
+    const on = this.kind === 'tank' || this.kind === 'ship' || (this.kind === 'car' && ps.some((p) => p.def.gv)); // (a ship's turrets: their arcs and the guns' dip, as a tank's)
     clearTimeout(this.sweepT);
     this.tg = on ? Aim.groupsOfParts(ps, adj) : null;
     this.tgOf = on ? new Map() : null;
@@ -2154,7 +2310,7 @@ const Builder = {
     this.peekUntil = 0; clearTimeout(this._peekT);
     this.renderTools();
     this.redraw();
-    UI.toast(!on ? 'X-ray off' : armour ? 'X-ray on: the armour is see-through, so you can see the crew, ammunition and engine inside' : 'X-ray on: the noses holding a radar are see-through');
+    UI.toast(!on ? 'X-ray off' : this.kind === 'ship' && armour ? 'X-ray on: her watertight compartments (numbered from the bow), magazines in red, engines and crew' : armour ? 'X-ray on: the armour is see-through, so you can see the crew, ammunition and engine inside' : 'X-ray on: the noses holding a radar are see-through');
   },
   // A look inside for 1.6 s (a set just fitted, swapped or dropped): one redraw now and one when it ends, then idle.
   peek() {
@@ -2296,7 +2452,7 @@ const Builder = {
   // Hopper a new player meets, a plane): a new, empty design of that kind, the old one a tap of Undo away; the player's
   // own unsaved work is asked about first.
   pickKind(kind) {
-    const own = { tank: (d) => d.gv, drone: (d) => d.drone || d.type === 'droneCore' }[kind];
+    const own = { tank: (d) => d.gv, drone: (d) => d.drone || d.type === 'droneCore', ship: (d) => d.ship }[kind];
     if (!own || this.kind === kind || !this.parts.length || this.parts.some((p) => own(p.def))) { this.setKind(kind); this.droneTip(); return; }
     const K = VEHICLE_KINDS[kind].name, was = this.name, fresh = () => {
       this.parts = []; this.selected = null; this.savedAs = null; this.name = K;
@@ -2308,6 +2464,7 @@ const Builder = {
     UI.modal({
       title: `A new ${K} design?`,
       body: el('p', { text: kind === 'tank' ? `The ${was} has no armour parts. A tank starts from a hull on an empty blueprint; Undo brings these parts back.`
+        : kind === 'ship' ? `The ${was} has no ship parts. A ship starts from a hull: add a bow, a midsection and a stern on an empty blueprint; Undo brings these parts back.`
         : `The ${was} has no drone parts. A drone starts from a frame on an empty blueprint; Undo brings these parts back.` }),
       actions: [{ label: 'Keep these parts', onClick: () => this.setKind(kind) }, { label: `New ${K} design`, primary: true, onClick: fresh }],
     });
@@ -2320,11 +2477,12 @@ const Builder = {
   },
   // Planes, armour and drones mirror left and right and keep their own symmetry settings (on unless switched off); the
   // others share one. True if it just changed.
-  symKey(kind) { return kind === 'plane' ? 'rss.symmetryPlane' : kind === 'tank' ? 'rss.symmetryTank' : kind === 'drone' ? 'rss.symmetryDrone' : 'rss.symmetry'; },
+  symKey(kind) { return kind === 'plane' ? 'rss.symmetryPlane' : kind === 'tank' ? 'rss.symmetryTank' : kind === 'drone' ? 'rss.symmetryDrone' : kind === 'ship' ? 'rss.symmetryShip' : 'rss.symmetry'; },
   kindSymmetry(kind) {
     const want = store.get(this.symKey(kind), true), b = $('#btn-sym');
     b.title = kind === 'plane' ? 'Symmetry: parts out on one wing get a twin on the other' : kind === 'rocket' ? 'Symmetry: parts get a twin on the other side of the stack'
-      : kind === 'tank' ? 'Symmetry: parts get a twin on the other side' : kind === 'drone' ? 'Symmetry: mirror left and right (motors go on in pairs)' : 'Symmetry: parts get a twin front and back';
+      : kind === 'tank' ? 'Symmetry: parts get a twin on the other side' : kind === 'drone' ? 'Symmetry: mirror left and right (motors go on in pairs)'
+      : kind === 'ship' ? 'Symmetry: parts get a twin on the other side (propellers and rudders go on in pairs)' : 'Symmetry: parts get a twin front and back';
     if (want === this.symmetry) return false;
     this.symmetry = want;
     b.setAttribute('aria-pressed', String(want));
@@ -2358,13 +2516,18 @@ const Builder = {
     set('#s-name', this.name);
     set('#s-mass', fmt.mass(s.mass));
     set('#s-thrust', `${Math.round(s.thrust / 1000).toLocaleString('en-US')} kN`);
-    const kind = this.kind, rocket = kind === 'rocket', tank = kind === 'tank';
+    const kind = this.kind, rocket = kind === 'rocket', tank = kind === 'tank', ship = kind === 'ship';
     set('#s-twr', s.thrust ? s.twr.toFixed(2) : '—');
     set('#s-twr-label', rocket ? 'TWR' : 'T/W');
-    $('#s-twr-row').hidden = kind === 'car' || tank;
+    $('#s-twr-row').hidden = kind === 'car' || tank || ship;
     // armour: mass, power to weight, top speed and the front's thickness instead of thrust, T/W, fuel and stages
-    for (const id of ['#s-thrust-row', '#s-dv-row', '#s-stage-box']) $(id).hidden = tank;
+    for (const id of ['#s-thrust-row', '#s-dv-row', '#s-stage-box']) $(id).hidden = tank || ship;
     for (const id of ['#s-power-row', '#s-top-row', '#s-front-row']) $(id).hidden = !tank;
+    // (the ships update) a ship: displacement, draught, stability and top speed in knots in their place
+    for (const id of ['#s-disp-row', '#s-draught-row', '#s-stab-row']) $(id).hidden = !ship;
+    $('#s-mass-row').hidden = ship;
+    $('#stats').classList.toggle('ship', ship);
+    if (ship) this.renderShipStats(s.ship);
     if (tank) {
       const G = s.ground || {}, ps0 = this.parts.filter((p) => this.attached.has(p.id)), hpt = G.gear ? G.gear.hpt : this.hptOf(ps0);
       set('#s-power', hpt > 0 ? `${Math.round(hpt)} hp/t` : '—');
@@ -2379,21 +2542,22 @@ const Builder = {
     if (link.hidden !== !drone) link.hidden = !drone;
     $('#stats').classList.toggle('drone', drone); // (its battery and top-speed rows are wider: css)
     if (drone) this.renderDroneStats(s);
-    $('#career-row').hidden = Career.sandbox;
-    if (!Career.sandbox) {
+    $('#budget-row').hidden = !Budget.on; // (a battle's money: Budget, util.js; none in solo play or a sandbox room)
+    if (Budget.on) {
       set('#s-cost', money(s.cost));
-      set('#s-funds', money(Career.data.funds));
-      $('#s-cost').className = s.cost > Career.data.funds ? 'bad' : '';
-      $('#career-row').querySelectorAll('.cr-label')[1].textContent = this.mp ? 'Budget' : 'Funds';
-      const btns = $('#career-row .cr-btns'); if (btns) btns.hidden = !!this.mp; // (no research or missions in a battle)
+      set('#s-funds', money(Budget.funds));
+      $('#s-cost').className = Budget.over(s.cost) ? 'bad' : '';
     }
     const warn = [], ps = this.parts.filter((p) => this.attached.has(p.id)), has = (f) => ps.some(f);
-    if (!this.ctrl) warn.push(tank ? 'Add a hull: it holds the crew.' : kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : drone ? 'Add a flight controller (Frames).' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
+    if (ship) { // (the ships update: her hull's warnings show from the first segment, bridge or none; no rocket staging words)
+      if (!this.ctrl) warn.push('Add a bridge (Superstructure): she is steered from it.');
+      if (typeof Ship !== 'undefined') Ship.warnings(this.ctrl ? ps : this.parts, s.ship, warn, { arcs: this.shipArcs() });
+    } else if (!this.ctrl) warn.push(tank ? 'Add a hull: it holds the crew.' : kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : drone ? 'Add a flight controller (Frames).' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
     else if (kind === 'plane') {
       const com = this.com, col = this.col, L = Math.max(4, s.air.length);
       if (!has((p) => p.def.wing && !p.def.wing.control)) warn.push('Add a wing to fly: drop it through the fuselage near the yellow centre of mass.');
       if (!has((p) => p.def.thrust)) warn.push('Add an engine: a propeller or a jet.');
-      if (!has((p) => p.def.wheel) && !has((p) => p.def.float)) warn.push('Add landing gear under the fuselage to roll down the runway (or floats to start on the water).');
+      if (!has((p) => p.def.wheel) && !has((p) => p.def.float || p.def.hull)) warn.push('Add landing gear under the fuselage to roll down the runway (or floats to start on the water).'); // [WP5] (a hull floats as floats do: a flying boat)
       else if (has((p) => p.def.wheel) && com) {
         const ahead = ps.some((p) => p.def.wheel && p.y > com.y), behind = ps.some((p) => p.def.wheel && p.y < com.y);
         if (!ahead || !behind) warn.push('Put landing gear both ahead of and behind the centre of mass, or it will tip onto its nose or tail.');
@@ -2421,19 +2585,18 @@ const Builder = {
     else if (s.twr < 1) warn.push('Too heavy to lift off: TWR below 1.');
     // radar (any kind): radar missiles with nothing to guide them, a set outside any nose, two radars looking forward
     if (this.ctrl) warn.push(...radarProblems(ps));
+    if (!ship && typeof Ship !== 'undefined' && ps.some((p) => p.def.ship)) Ship.kitWarnings(ps, null, warn); // (ship kit on another kind: torpedo tubes on a tank, cells with no radar)
     this.renderRadar(s.radar, ps);
     // lopsided: engines or weight off to one side, or something hanging past a wing tip
     if (this.ctrl && this.cot && Math.abs(this.cot.z) > 0.3) warn.push(`The engines push ${Math.abs(this.cot.z).toFixed(1)} m off the centre line, so it will swing to one side. Turn on symmetry or balance them.`);
-    if (this.ctrl && this.com && Math.abs(this.com.z) > 0.15) warn.push('More weight on one side than the other: it will lean that way.');
+    if (this.ctrl && this.com && Math.abs(this.com.z) > 0.15 && !ship) warn.push('More weight on one side than the other: it will lean that way.'); // (a ship's list is her own warning)
     const onPs = new Map(ps.map((p) => [p.id, p]));
     if (ps.some((p) => { const h = onPs.get(p.att); return h && h.def.wing && !isSurface(p.def) && Math.abs(partZ(p)) - partDepth(p) / 2 > h.def.wing.span / 2; })) warn.push('Something hangs past a wing tip.');
     if (s.loose) warn.push(`${s.loose} part${s.loose > 1 ? 's' : ''} not attached. They stay behind.`);
     if (this.mp) warn.push(...MP.designProblems(s, ps, kind)); // the battle's budget, and the carrier's size limits
-    else if (s.locked.length) warn.push(`Uses ${s.locked.length} locked part${s.locked.length > 1 ? 's' : ''}. Unlock them in R&D.`);
-    else if (!Career.sandbox && s.cost > Career.data.funds) warn.push(`Costs ${money(s.cost - Career.data.funds)} more than you have.`);
     $('#s-warn').textContent = warn.join(' ');
     $('#s-warn').hidden = !warn.length;
-    const gl = s.ground ? this.groundLine(ps) : '', gEl = $('#s-ground');
+    const gl = ship ? this.shipLine(s.ship) : s.ground ? this.groundLine(ps) : '', gEl = $('#s-ground');
     gEl.hidden = !gl;
     if (gl) gEl.textContent = gl;
     const a = s.air, airLine = kind === 'plane' && a.stall > 0;
@@ -2493,6 +2656,95 @@ const Builder = {
     else if (wing) set('#s-top', `~${Math.round(D.vTop * 3.6)} km/h`);
     else parts('#s-top', 'Level ', `${Math.round(D.vTop * 3.6)} km/h`, ` · Acro ${Math.round(D.vAcro * 3.6)}`);
     set('#s-link', D && D.link ? this.linkText(D.link) : '—');
+  },
+  // (the ships update) each gun turret's traverse for the ship's warnings: the turret's main gun's x and its arc (degrees;
+  // 360 all round), from the sweep (landSweep shows the warnings again when it lands)
+  shipArcs() {
+    const out = [];
+    if (!this.tg || !this.sweeps) return out;
+    this.tg.forEach((g, i) => {
+      const r = this.sweeps[i], gun = this.primaryOf(g);
+      if (!r || !gun || !gun.def.weapon) return;
+      out.push({ x: gun.x, deg: r.yawLim ? ((r.yawLim[1] - r.yawLim[0]) * 180) / Math.PI : 360 });
+    });
+    return out;
+  },
+  // (the ships update) a ship's rows (Ship.stats): displacement, draught, stability (GM: red when she'd capsize, amber when
+  // she'd roll heavily) and top speed in knots
+  renderShipStats(S) {
+    const set = (id, t) => { $(id).textContent = t; }, up = !!S && S.hull && !S.sinks;
+    const t = (kg) => { const v = kg / 1000; return v < 10 ? `${v.toFixed(1)}\u00a0t` : `${Math.round(v).toLocaleString('en-US')}\u00a0t`; };
+    $('#s-top-row').hidden = false;
+    set('#s-disp', S && S.mass > 0 ? t(S.mass) : '—');
+    set('#s-draught', up ? `${S.draft.toFixed(1)}\u00a0m` : S && S.sinks ? 'sinks' : '—');
+    $('#s-draught').className = S && S.sinks ? 'bad' : '';
+    set('#s-gm', up ? `GM\u00a0${S.GM < 0 ? '−' : ''}${Math.abs(S.GM).toFixed(Math.abs(S.GM) < 10 ? 1 : 0)}\u00a0m` : '—');
+    $('#s-gm').className = up && (S.capsize || S.GM < 0) ? 'bad' : up && S.GM < SHIP.BUILD.gmLow ? 'warnv' : '';
+    set('#s-top', up && S.top > 0 ? `~${Math.round(S.top * SHIP.KN)}\u00a0kn` : '—');
+  },
+  // the line under a ship's warnings: her freeboard, compartments (and how many lie open), her engines' power, her turning
+  // circle and a trim worth knowing
+  shipLine(S) {
+    if (!S || !S.hull) return '';
+    const out = S.sinks ? [] : [`freeboard ${Math.max(0, S.freeboard).toFixed(1)} m`];
+    out.push(`${S.comps} compartment${S.comps === 1 ? '' : 's'}${S.open ? ` (${S.open} open)` : ''}`);
+    if (S.kw > 0) out.push(`${Math.round(S.kw).toLocaleString('en-US')} kW`);
+    if (S.turn > 0 && S.top > 0) out.push(`turns in ~${Math.round(S.turn / 10) * 10} m`);
+    if (Math.abs(S.trim) >= 0.5 && !S.sinks) out.push(`trim ${Math.abs(S.trim).toFixed(1)}° by the ${S.trim > 0 ? 'bow' : 'stern'}`);
+    return out.join(' · ');
+  },
+  // a ship's waterline (the blueprint draws it across her, Render3D as a sheet in 3D): the sea plane she floats at in part
+  // space (y = a + bx·x + bz·z) a little past her length and beam, red when she sinks; null for any other kind or no hull
+  waterline3d() {
+    const S = this.kind === 'ship' && this.statsData && this.statsData.ship;
+    if (!S || !S.hull) return null;
+    const L = S.x1 - S.x0, m = Math.max(2, 0.12 * L), mz = S.hb + Math.max(1.5, 0.25 * Math.min(L, 4 * S.hb));
+    return { x0: S.x0 - m, x1: S.x1 + m, z0: -mz, z1: mz, a: S.plane.a, bx: S.plane.bx, bz: S.plane.bz, bad: !!S.sinks };
+  },
+  // ...and in 2D: a blue line across the blueprint at her waterline, the water under it faintly blue (part space)
+  drawWaterline(ctx, lw) {
+    const W = this.waterline3d();
+    if (!W) return;
+    const S = this.statsData.ship, y = (x) => W.a + W.bx * x, low = S.keel - Math.max(0.5, 0.03 * (S.x1 - S.x0));
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(W.x0, y(W.x0)); ctx.lineTo(W.x1, y(W.x1)); ctx.lineTo(W.x1, low); ctx.lineTo(W.x0, low); ctx.closePath();
+    ctx.fillStyle = W.bad ? 'rgba(255,93,93,0.10)' : 'rgba(79,182,255,0.14)'; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(W.x0, y(W.x0)); ctx.lineTo(W.x1, y(W.x1));
+    ctx.strokeStyle = W.bad ? '#ff5d5d' : '#4fb6ff'; ctx.lineWidth = 2 * lw;
+    if (W.bad) ctx.setLineDash([6 * lw, 4 * lw]);
+    ctx.stroke();
+    ctx.restore();
+  },
+  // (the ships update) a ship in X-ray (2D, over the see-through parts; Ship.xray): each watertight compartment a band of
+  // blue inside her hull, alternately light and dark, numbered from the bow; bulkheads as bright lines across the hull, the
+  // armour belt as an amber band, magazines in red, engines in orange, pumps in cyan, damage control parties in green
+  // (the crews are drawn by the parts themselves)
+  drawShipXray(ctx, lw, XY) {
+    const X = Ship.xray(this.parts), labels = [];
+    for (const c of X.comps) {
+      const R = partRect(c.H), S = c.H.def.shull;
+      ctx.save(); ctx.beginPath(); shullPath(ctx, c.H); ctx.clip();
+      ctx.fillStyle = c.n % 2 ? 'rgba(79,182,255,0.20)' : 'rgba(79,182,255,0.08)';
+      ctx.fillRect(c.x0, R.b - 1, c.x1 - c.x0, R.t - R.b + 2);
+      ctx.restore();
+      const xm = (c.x0 + c.x1) / 2, sec = shullSec(S.st, xm - c.H.x);
+      if (c.x1 - c.x0 > 1.5) labels.push([...XY(xm, c.H.y + sec[1] + 0.62 * (sec[0] - sec[1])), String(c.n)]); // (over the hold's kit, under the deck's)
+    }
+    ctx.lineWidth = 2.5 * lw; ctx.strokeStyle = '#7fc8ff';
+    for (const b of X.bulkheads) { const sec = shullSec(b.H.def.shull.st, b.x - b.H.x); ctx.beginPath(); ctx.moveTo(b.x, b.H.y + sec[1]); ctx.lineTo(b.x, b.H.y + sec[0]); ctx.stroke(); }
+    for (const b of X.belts) {
+      ctx.save(); ctx.beginPath(); shullPath(ctx, b.H); ctx.clip();
+      ctx.fillStyle = 'rgba(255,181,71,0.35)'; ctx.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+      ctx.restore();
+    }
+    const COL = { mag: ['rgba(255,93,93,0.45)', '#ff5d5d'], engine: ['rgba(255,150,60,0.18)', '#ff9b3c'], pump: ['rgba(95,215,255,0.18)', '#5fd7ff'], dc: ['rgba(120,220,120,0.2)', '#78dc78'] };
+    ctx.lineWidth = 2 * lw;
+    for (const m of X.marks) {
+      const R = partRect(m.p), [f, k] = COL[m.kind];
+      ctx.fillStyle = f; ctx.fillRect(R.l, R.b, R.r - R.l, R.t - R.b);
+      ctx.strokeStyle = k; ctx.strokeRect(R.l, R.b, R.r - R.l, R.t - R.b);
+    }
+    this.xrayLabels = labels.length > 1 ? labels : null;
   },
   // a drone link in words: "Radio 2.5 km", "Long-range 8 km", "Fibre 5 km · can't be jammed", "Satellite · 0.25 s lag"
   linkText(L) {
@@ -2630,7 +2882,7 @@ const Builder = {
       const g = [...this.sel], mass = g.reduce((s, q) => s + (q.mm != null ? armourMassT(q.def, q.mm) : q.def.mass), 0), cost = g.reduce((s, q) => s + (q.def.cost || 0) + (q.mm != null ? armourCostDelta(q.def, q.mm) : 0), 0);
       this.renderHolds(null);
       $('#pi-name').textContent = `${g.length} parts selected`;
-      $('#pi-specs').textContent = `${mass.toFixed(2)} t` + (Career.sandbox ? '' : ` · ${money(cost)}`);
+      $('#pi-specs').textContent = `${mass.toFixed(2)} t` + (Budget.on ? ` · ${money(cost)}` : '');
       $('#pi-desc').textContent = isTouch ? 'Drag any of them to move them together. Copy to paste them again (here or in another design).'
         : 'Drag any of them to move them together · Ctrl+C / Ctrl+V copy and paste (also into another design) · R turns them · [ ] move them in and out · Delete removes them.';
       this.layout();
@@ -2665,9 +2917,11 @@ const Builder = {
     if (d.torque) specs.push(`${d.torque / 1000} kN·m`);
     if (d.wing && !d.wing.control) { const W = wingAero(d); specs.push(`breaks above ${Math.round(W.vne * 0.36) * 10} km/h${W.mmax ? ` or Mach ${W.mmax}` : ' (more up high)'}`); } // (to 10 km/h)
     if (d.heatShield || d.maxTemp !== 2000) specs.push(`max ${d.maxTemp} K`);
-    if (d.gv) specs.push(...this.groundSpecs(d));
+    const sh = d.ship && typeof Ship !== 'undefined' ? Ship.specs(d) : []; // (the ships update: a ship part's own lines, then a gun's shells)
+    if (sh.length) specs.push(...sh, ...this.shellSpecs(d.weapon));
+    else if (d.gv) specs.push(...this.groundSpecs(d));
     if (d.radarSet) specs.push(...radarSpecs(d.radarSet));
-    if (!Career.sandbox) specs.push(money(p.mm != null ? d.cost + armourCostDelta(d, p.mm) : d.cost));
+    if (Budget.on) specs.push(money(p.mm != null ? d.cost + armourCostDelta(d, p.mm) : d.cost));
     return specs.join(' · ');
   },
   // A drone part's panel line: its weight (with its charge and stores), its role's numbers, then the price.
@@ -2684,12 +2938,22 @@ const Builder = {
     if (w && w.kind === 'bomb') out.push(`${w.ammo} × ${w.each} kg`, `${w.blast} m burst`);
     if (w && w.kind === 'missile') out.push(`${w.ammo} missiles`, km(w.range), ...(w.heat ? [`${w.heat} mm`] : []));
     if (d.wing && !d.wing.control) { const W = wingAero(d); out.push(`breaks above ${Math.round(W.vne * 0.36) * 10} km/h`); }
-    if (!Career.sandbox) out.push(money(d.cost));
+    if (Budget.on) out.push(money(d.cost));
     return out;
   },
   // kinetic rounds lose penetration as they slow (by (v/v0)^1.43, slowed by the air as in flight); the rest don't
   PEN_KIN: { ap: 1, aphe: 1, apcr: 1, apds: 1, apfsds: 1, ball: 1 },
   penAt(S, D) { return Math.round(this.PEN_KIN[S.type] ? S.pen * Math.exp(-1.43 * S.k * (EARTH.rho0 || 1.2) * D) : S.pen || 0); },
+  // a gun's shells: what each goes through at 500 m and 1 km (kinetic), or its blast
+  shellSpecs(w) {
+    const out = [];
+    if (w && w.shells && typeof SHELLS !== 'undefined') for (const k of w.shells) {
+      const S = SHELLS[k];
+      if (!S) continue;
+      out.push(S.pen && this.PEN_KIN[S.type] ? `${S.label} ${this.penAt(S, 500)}/${this.penAt(S, 1000)} mm at 500/1000 m` : S.pen ? `${S.label} ${S.pen} mm` : `${S.label} ${S.he || 0} mm blast`);
+    }
+    return out;
+  },
   groundSpecs(d) {
     const out = [], w = d.weapon;
     if (d.engine) out.push(`${d.engine.kw} kW (${Math.round(d.engine.kw * 1.341)} hp)`, d.engine.fuel);
@@ -2704,11 +2968,7 @@ const Builder = {
     else if (w && w.kind === 'agun') out.push(`${w.cal} mm`, `${w.rate} rounds/s`, `${w.ammo} rounds`);
     else if (w && w.kind === 'smoke') out.push(`${w.ammo} salvos`);
     else if (w && (w.kind === 'missile' || w.kind === 'rocket')) out.push(`${w.ammo}${w.stow ? ` + ${w.stow}` : ''} ${w.label || 'rockets'}`, ...(w.range ? [`${w.range / 1000} km`] : []), ...(w.heat ? [`${w.heat} mm`] : []));
-    if (w && w.shells && typeof SHELLS !== 'undefined') for (const k of w.shells) {
-      const S = SHELLS[k];
-      if (!S) continue;
-      out.push(S.pen && this.PEN_KIN[S.type] ? `${S.label} ${this.penAt(S, 500)}/${this.penAt(S, 1000)} mm at 500/1000 m` : S.pen ? `${S.label} ${S.pen} mm` : `${S.label} ${S.he || 0} mm blast`);
-    }
+    out.push(...this.shellSpecs(w));
     if (d.searchRadar || d.trackRadar) out.push(`${(d.searchRadar || d.trackRadar).range / 1000} km`);
     if (d.rack) out.push(`${d.rack.rounds} rounds`, ...(d.autoload ? [`loads every ${d.autoload} s`] : []));
     if (d.seat) out.push(d.seat);
@@ -2739,7 +2999,7 @@ const Builder = {
     const z = partZ(p), a = Math.abs(z).toFixed(2);
     if (p.def.twinZ) return `±${a} m`;
     if (Math.abs(z) < 0.005) return 'centre';
-    return this.kind === 'plane' || this.kind === 'tank' || this.kind === 'drone' ? `${z > 0 ? 'right' : 'left'} ${a} m` : `${z > 0 ? '+' : '−'}${a} m`;
+    return this.kind === 'plane' || this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship' ? `${z > 0 ? 'right' : 'left'} ${a} m` : `${z > 0 ? '+' : '−'}${a} m`;
   },
   // The paint row: a swatch per skin (and the part's own look), lit for the paint the selection wears.
   renderPaint() {
@@ -2778,7 +3038,7 @@ const Builder = {
     // that won't go, the panel a little shorter (it scrolls): the stats and the kind buttons are never covered
     if (innerWidth <= 760) {
       const top = $('#stats').getBoundingClientRect().bottom + 8;
-      if ((this.kind === 'tank' || this.kind === 'drone') && i.top - 8 - f.height < top) { // (and a drone's: the big update)
+      if ((this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship') && i.top - 8 - f.height < top) { // (and a drone's: the big update; a ship's)
         fit.classList.add('row'); f = fit.getBoundingClientRect();
         if (i.top - 8 - f.height < top) { info.style.maxHeight = `${Math.max(120, Math.floor(i.bottom - top - f.height - 8))}px`; info.style.overflowY = 'auto'; i = info.getBoundingClientRect(); }
       }
@@ -2983,7 +3243,7 @@ const Builder = {
           renderDesignThumb(s, 64, 64, dpr, (VEHICLE_KINDS[s.kind] || VEHICLE_KINDS.rocket).launchRot),
           el('span', { class: 'design-text' },
             el('span', { class: 'template-name', text: s.name }),
-            el('span', { class: 'template-blurb', text: `${kind} · ${known.length} parts${Career.sandbox ? '' : ' · ' + money(designCost(known))}${when ? ' · ' + when : ''}${current ? ' · on the blueprint' : ''}` })));
+            el('span', { class: 'template-blurb', text: `${kind} · ${known.length} parts${Budget.on ? ' · ' + money(designCost(known)) : ''}${when ? ' · ' + when : ''}${current ? ' · on the blueprint' : ''}` })));
         const code = el('button', { class: 'btn icon-only small', 'aria-label': `Copy a code for ${s.name}`, title: 'Copy as a code to share' });
         code.append(icon('copy'));
         const del = el('button', { class: 'btn icon-only small danger', 'aria-label': `Delete ${s.name}`, title: 'Delete' });
@@ -3007,20 +3267,23 @@ const Builder = {
       }
       wrap.append(list);
     }
-    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', tank: 'Ground forces', heli: 'Helicopters', drone: 'Drones' };
+    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', tank: 'Ground forces', heli: 'Helicopters', drone: 'Drones', ship: 'Ships' };
     // (P4 play-test: building Armour, its stock vehicles first, not five screens down; a drone, the stock drones)
-    const order = this.kind === 'tank' || this.kind === 'drone' ? [this.kind, ...Object.keys(groups).filter((k) => k !== this.kind)] : Object.keys(groups);
+    const order = this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship' ? [this.kind, ...Object.keys(groups).filter((k) => k !== this.kind)] : Object.keys(groups);
     for (const kind of order) {
-      const keys = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return (t.kind === 'tank' ? 'tank' : t.military ? 'military' : t.kind || 'rocket') === kind; });
+      // (a template's own group first: the flying boat is filed under Ships; a warship is a ship, never a military aircraft)
+      const keys = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return (groups[t.group] ? t.group : t.kind === 'tank' ? 'tank' : t.kind === 'ship' ? 'ship' : t.military ? 'military' : t.kind || 'rocket') === kind; });
+      const sc = kind === 'ship' ? new Map(keys.map((k) => [k, shipClass(TEMPLATES[k])])) : null;
+      if (sc) keys.sort((a, b) => sc.get(a).rank - sc.get(b).rank || sc.get(a).cost - sc.get(b).cost); // (by class, then cost: the flying boat last)
       if (!keys.length) continue;
       wrap.append(el('h3', { class: 'summary-h', text: groups[kind] }));
       if (kind === 'tank') wrap.append(el('p', { class: 'hangar-hint', text: 'Open one, turn on X-ray, and see how it’s built.' }));
       const tl = el('div', { class: 'template-list' });
       for (const key of keys) {
         const t = TEMPLATES[key];
-        const locked = !Career.sandbox && t.tier > Career.data.tier, cls = kind === 'tank' ? groundClass(t) : null;
-        const b = el('button', { class: 'template' + (locked ? ' locked' : '') },
-          el('span', { class: 'template-name', text: t.name + (locked ? ` · Tier ${t.tier}` : '') }),
+        const cls = kind === 'tank' ? groundClass(t) : sc ? sc.get(key).name : null;
+        const b = el('button', { class: 'template' },
+          el('span', { class: 'template-name', text: t.name }),
           el('span', { class: 'template-blurb', text: cls ? `${cls} · ${t.blurb}` : t.blurb }));
         b.addEventListener('click', () => {
           const go = () => { UI.closeModal(); this.loadTemplate(key); };
@@ -3239,8 +3502,6 @@ const Builder = {
     tog.addEventListener('click', () => { const on = !stats.classList.contains('collapsed'); fold(on); store.set('rss.statsFolded', on); });
     $('#btn-templates').addEventListener('click', () => this.openHangar());
     document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this.pickKind(b.dataset.kind)));
-    $('#btn-rd').addEventListener('click', () => App.showResearch());
-    $('#btn-missions').addEventListener('click', () => App.showMissions());
   },
 
   confirmClear() {
@@ -3257,7 +3518,7 @@ const Builder = {
   zoomAt(f, sx, sy) {
     this.redraw();
     const before = this.screenToDisp(sx, sy);
-    this.cam.scale = clamp(this.cam.scale * f, 3, 90 / this.unit());
+    this.cam.scale = clamp(this.cam.scale * f, Math.min(3, this.zoomMin()), 90 / this.unit());
     const after = this.screenToDisp(sx, sy);
     this.cam.x += before.x - after.x;
     this.cam.y += before.y - after.y;
@@ -3478,11 +3739,10 @@ const Builder = {
         ctx.globalAlpha = (loose ? 0.4 : 1) * (hosts && hosts.has(p.id) ? 0.35 : 1);
         drawPart(ctx, p, lw);
         if (z < -0.05 && !p.def.twinZ) { partPath(ctx, p); ctx.fillStyle = `rgba(7,18,34,${Math.min(0.5, 0.15 + 0.04 * -z).toFixed(3)})`; ctx.fill(); }
-        if (!Career.unlocked(p.def)) {
-          ctx.globalAlpha = 0.45; partPath(ctx, p); ctx.fillStyle = '#ff5d5d'; ctx.fill(); ctx.globalAlpha = 1;
-        }
       }
       ctx.globalAlpha = 1;
+      this.xrayLabels = null;
+      if (this.kind === 'ship' && PartPaint.xray && typeof Ship !== 'undefined') this.drawShipXray(ctx, lw, XY); // (the ships update: her compartments, belt and magazines)
       if (this.selected) {
         for (const p of this.multi ? this.sel : [this.selected, this.selected.mirror]) {
           if (!p) continue;
@@ -3512,6 +3772,7 @@ const Builder = {
         ctx.globalAlpha = 1;
       }
     } finally { PartPaint.xray = null; PartPaint.armour = false; }
+    if (this.kind === 'ship') this.drawWaterline(ctx, lw); // (the ships update: where she floats)
     this.arcLabels = null;
     if (this.tg) this.drawArcs(ctx, lw, XY);
     if (d && d.part && d.ghost && !d.ghost.ok) {
@@ -3545,6 +3806,10 @@ const Builder = {
       ctx.fillStyle = '#c38cff';
       ctx.beginPath(); ctx.moveTo(0, -10 * dpr); ctx.lineTo(7 * dpr, 6 * dpr); ctx.lineTo(0, 2 * dpr); ctx.lineTo(-7 * dpr, 6 * dpr); ctx.closePath(); ctx.fill();
       ctx.restore();
+    }
+    if (this.xrayLabels) { // a ship's compartments, numbered from the bow (X-ray)
+      ctx.font = `600 ${10 * dpr}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (const [x, y, t] of this.xrayLabels) { const w = ctx.measureText(t).width + 8 * dpr; ctx.fillStyle = 'rgba(5,9,18,0.8)'; ctx.fillRect(x - w / 2, y - 8 * dpr, w, 16 * dpr); ctx.fillStyle = '#7fc8ff'; ctx.fillText(t, x, y); }
     }
     if (this.arcLabels) { // the arcs' numbers
       ctx.font = `600 ${10 * dpr}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';

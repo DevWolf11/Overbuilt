@@ -383,4 +383,37 @@ placementChecks(ctx, 'highland', 'Highland Ridge');
   t('soloPlace: with the map and the 3D view, Armour starts at the north pad\'s centre facing the zones; other kinds still at their own sites',
     J(P) === J(GM.placement('highland', 0, 0, 'tank')) && P.e === 17750 && P.z === 13800 && P.yaw === -Math.PI / 2 && others.every((x) => x === null), P);
 }
+
+// ---------------------------------------------------------------- the ships update (WP11): the Naval Battle's rules at sea
+// The Shetland Sound (EARTH.arenas.sound, sea: no levelled ground, props or arena mesh): pickNaval, the starts (ships
+// abreast 120 m apart, a second row 250 m astern past six; helicopters and drones 300 m up; planes from its air starts),
+// the zones (taken by ships afloat only, gd meaning afloat; a tank or a boat never), a duel's zone C (450 m), navalStock,
+// and the old arenas' capture as it was (no `kinds`: the ground kinds).
+{
+  const S = EARTH.arenas.sound;
+  t('naval: the Sound is an arena (a sea one: kinds ship, no berms, not clear, not a ground pad), picked only with the map; the old arenas name no kinds',
+    GM.arena('sound') === S && S.sea === true && S.map === true && J(S.kinds) === '["ship"]' && !S.berms.length && !S.clear && !Object.values(EARTH.groundPads).includes(S.pads[0])
+    && GM.pickNaval(true) === 'sound' && GM.pickNaval(false) === null && !('kinds' in EARTH.arenas.highland) && !('kinds' in EARTH.arenas.runway));
+  const ships = [0, 1].map((tm) => Array.from({ length: 12 }, (_, k) => GM.placement('sound', tm, k, 'ship')));
+  const pairs = []; for (const L of ships) for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) pairs.push(dist(L[i], L[j]));
+  t('naval: each team\'s ships start at its end of the Sound (West faces east, East west), six abreast 120 m apart across the pad, the next six 250 m astern; 9.4 km between the ends (out of two destroyers\' sight: review play-1)',
+    ships[0].every((P) => P.yaw === 0) && ships[1].every((P) => P.yaw === Math.PI) && near(dist(ships[0][0], ships[1][0]), 9400, 1e-6) && Math.min(...pairs) >= 120 - 1e-9
+    && ships[0].slice(0, 6).every((P) => P.e === 15100) && ships[0].slice(6).every((P) => P.e === 15100 - 250) && ships[1].slice(6).every((P) => P.e === 24500 + 250)
+    && J(GM.placement('sound', 0, 12, 'ship')) === J(ships[0][0]), ships[0].map((P) => [P.e, P.z]));
+  const h = GM.placement('sound', 0, 1, 'heli'), d = GM.placement('sound', 1, 0, 'drone'), pl = GM.placement('sound', 1, 0, 'plane');
+  t('naval: helicopters and drones start 300 m up over their side\'s start (hovering), planes from the Sound\'s air starts at 1 km',
+    h.air && h.air.alt === 300 && h.air.speed === 0 && near(dist(h, S.pads[0]), 60, 1e-6) && d.air && d.air.alt === 300 && dist(d, S.pads[1]) < 1e-6 && pl.air.alt === 1000 && near(pl.e, 25200, 1e-9));
+  const o = GM.init('sound', { format: '2v2' }, [2, 2]), o1 = GM.init('sound', { format: '1v1' }, [1, 1]);
+  t('naval: a battle in the Sound has its three zones at sea (350 m), a duel zone C alone at 450 m', o.arena === 'sound' && o.zones.map((z) => z.id + z.r).join() === 'A350,B350,C350' && o1.zones.length === 1 && o1.zones[0].r === 450);
+  const ship = (team, zn, more) => unit(team, zn, Object.assign({ kind: 'ship', speed: 8 }, more));
+  const rate = (u, arena = 'sound') => { const q = GM.init(arena, { format: '3v3' }, [3, 3]), zn = Z(q, 'C'); GM.tick(q, 1, [Object.assign({}, u, { e: zn.e, z: zn.z })]); return zn.p; };
+  t('naval: in the Sound a ship afloat takes a zone; a tank, a car, a boat, a helicopter or a plane there never does; a ship not afloat (gd) doesn\'t',
+    rate(ship(0)) < 0 && rate(ship(1)) > 0 && ['tank', 'car', 'boat', 'heli', 'plane', undefined].every((k) => rate(ship(0, null, { kind: k })) === 0) && rate(ship(0, null, { gd: 0 })) === 0);
+  t('naval: ...and on Highland Ridge (and the Runway) a ship takes nothing, a tank as ever ("boat" still never)', rate(ship(0), 'highland') === 0 && rate(ship(0), 'runway') === 0 && rate(unit(0, null), 'highland') < 0 && rate(unit(0, null, { kind: 'boat' }), 'highland') === 0);
+  const r = until(o, 'A', [ship(0, Z(o, 'A')), ship(0, Z(o, 'A'))], 0);
+  t('naval: the same rules at sea: two ships take a neutral zone in 13.5 s (1.5×: 13.3 s, at the host\'s 4 Hz)', r.s === 13.5 && Z(o, 'A').own === 0 && J(r.ev) === J([{ k: 'cap', zone: 'A', team: 0, by: [0, 1] }]), r);
+  t('naval: navalStock: the money\'s ships best first, ending with the patrol boat (NAVAL_STOCK\'s table)',
+    J(GM.navalStock(45000)) === J(['cyclon', 'osca', 'zodiak', 'cyclon']) && J(GM.navalStock(75000)) === J(['vizby', 'pegazus', 'osca', 'cyclon']) && J(GM.navalStock(120000)) === J(['arley', 'olivar', 'vizby', 'cyclon'])
+    && J(GM.navalStock(1)) === J(GM.navalStock(45000)) && J(GM.navalStock('x')) === J(GM.navalStock(45000)) && GM.navalStock(120000).every((k) => ctx.TEMPLATES[k] && ctx.TEMPLATES[k].kind === 'ship'));
+}
 t.done();

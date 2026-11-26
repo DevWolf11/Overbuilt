@@ -1,7 +1,8 @@
 // Multiplayer craft sync: the spawn-row sanitiser on forged input (ids, types, numbers, depth, paint, att links and
 // loops, the 600-part cap), onSpawn and buildGhost on what survives, an owner -> ghost round trip of a jumbo with
 // moved pods and paint (adjacency, mass, centre of mass, inertia, hull equal), snapshots carrying com.z, the carrier
-// size check (measure) against test/baseline/mp-measure.json, the part cap (and the room's part limit off), and battleDesign.
+// size check (measure) against test/baseline/mp-measure.json, the part cap (and the room's part limit off), and battleDesign;
+// then ground battles, deaths and wrecks in rooms, drones, and naval battles (two players, baseline mp-naval).
 //   node test/mp.test.js [--update]
 const G = require('./lib/game.js'), { check } = require('./lib/baseline.js');
 const N = G.load({ mp: true, earth: false });
@@ -194,7 +195,6 @@ const ROOM = `var __T = 1000, __P = 0, __timers = [], __handlers = new Map(), __
     var sent = (t) => (Net.out || []).filter(([m]) => m.t === t);
     var MPUI = new Proxy({}, { get: (o, k) => (k in o ? o[k] : (...a) => { __ui.push([k, ...a]); }) });
     var App = { scene: 'mp', afterEarth: (fn) => fn(), showScene(s) { App.scene = s; }, showMP() {}, toBuild() { App.scene = 'build'; }, toHome() {}, use3D: () => true };
-    var Career = { data: { mode: 'career', funds: 0, tier: 4, done: {}, flights: 0 }, save() {} };
     UI.closeModal = () => {}; UI.modal = () => {};
     // Flight.start as the game's: the part tree holding the control part, placed at opts.place, the kept vessels kept
     Object.assign(Flight, { running: false, mp: null, vessels: [], time: 50, destroyed: false, spectate: null, starts: [],
@@ -229,7 +229,7 @@ async function groundBattle() {
   await X(`MP.host('pvp', 'local', { game: 'ground', budget: 120000, tickets: 'lots', format: 'ffa', polish: 5, arena: 'runway', constructor: 1, __proto__: { evil: 1 } })`);
   t('ground: MP.host(mode, transport, { game: "ground", ... }) takes the valid settings, refuses forged ones (tickets "lots", format ffa, polish, arena)',
     X(`(() => { const st = MP.state.settings; return st.game === 'ground' && st.budget === 120000 && st.tickets === 600 && st.format === '1v1' && st.polish === 120 && st.arena === 'highland' && st.respawn === 'free' && st.air === false && st.aim === 'arcade' && !('evil' in st) && Object.getPrototypeOf(st) === Object.prototype; })()`), X('MP.state.settings'));
-  X(`var before = JSON.stringify(MP.state.settings); for (const [k, v] of [['budget', 1e9], ['budget', '75000'], ['tickets', 401], ['respawn', 'forever'], ['air', 'yes'], ['air', 1], ['aim', 'aimbot'], ['game', 'naval'], ['format', 'ffa'], ['format', '4v4'], ['constructor', 1], ['__proto__', { x: 1 }], ['test', 1], ['limit', -1], ['tod', 'noon'], ['arena', 'runway'], ['polish', 1]]) MP.setSetting(k, v);`);
+  X(`var before = JSON.stringify(MP.state.settings); for (const [k, v] of [['budget', 1e9], ['budget', '75000'], ['tickets', 401], ['respawn', 'forever'], ['air', 'yes'], ['air', 1], ['aim', 'aimbot'], ['game', 'space'], ['sea', 'stormy'], ['sea', 1], ['format', 'ffa'], ['format', '4v4'], ['constructor', 1], ['__proto__', { x: 1 }], ['test', 1], ['limit', -1], ['tod', 'noon'], ['arena', 'runway'], ['polish', 1]]) MP.setSetting(k, v);`);
   t('ground: setSetting refuses forged values for every key (and keys it has no business with)', X('JSON.stringify(MP.state.settings) === before && !("x" in MP.state.settings)'), X('MP.state.settings'));
   X(`for (const [k, v] of [['tickets', 900], ['respawn', 'lineup'], ['air', true], ['aim', 'realistic'], ['format', '2v2'], ['budget', 75000]]) MP.setSetting(k, v);`);
   t('ground: and takes the lobby\'s own values', X(`(() => { const st = MP.state.settings; return st.tickets === 900 && st.respawn === 'lineup' && st.air === true && st.aim === 'realistic' && st.format === '2v2' && st.budget === 75000; })()`));
@@ -404,7 +404,7 @@ async function groundBattle() {
     const vm = require('vm'), fs = require('fs'), path = require('path');
     const NC = vm.createContext({ console, performance, setTimeout, clearTimeout, setInterval, clearInterval, addEventListener() {}, document: { hidden: false, addEventListener() {} } });
     vm.runInContext(fs.readFileSync(path.join(G.ROOT, 'js/net.js'), 'utf8') + '\nthis.Net = Net; this.V = NET_VERSION;', NC);
-    t('ground: obj, spot, fallen and wrecks are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 13 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared; 10: the part limit a room setting; 11: the big update: aircraft shot apart and falling, wrecks on every screen, radar parts, rdr and mp.a, drones beside their tanks: c, tc, extras; 12: the spawn points update: no causeway, levelled pads and props at the spawn points; 13: the drones\' second balance and lock-on)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && NC.Net._t.HOST_ONLY.has('wrecks') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && !NC.Net._t.HOST_ONLY.has('rdr') && NC.V === 13);
+    t('ground: obj, spot, fallen and wrecks are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 14 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared; 10: the part limit a room setting; 11: the big update: aircraft shot apart and falling, wrecks on every screen, radar parts, rdr and mp.a, drones beside their tanks: c, tc, extras; 12: the spawn points update: no causeway, levelled pads and props at the spawn points; 13: the drones\' second balance and lock-on; 14: the ships update: ships, ho/fi/kb on hits, mkill, stor, down.sea, naval battles, sea and st; mkill is anyone\'s)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && NC.Net._t.HOST_ONLY.has('wrecks') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && !NC.Net._t.HOST_ONLY.has('rdr') && !NC.Net._t.HOST_ONLY.has('mkill') && NC.V === 14);
   }
   // the lineup: a slot only when unused, the respawn time come and tickets left; each spawn uses its slot
   X(`MP.state.settings.respawn = 'lineup'; const p2 = MP.player(2); p2.slots = 1; p2.slot = 0; p2.respawnAt = __T + 5000;
@@ -860,6 +860,211 @@ async function roomDronesReview() {
     C('H.length > 0 && cosB.every((c) => c != null && c > 0.95)'), C('[H.length, cosB]'));
 }
 
+// ---- 10. naval battles (the ships update, spec §10; WP11): a 1v1 naval battle between two players, each on their own copy
+// of the game (test/lib/navaltrace.js: the host and a client, their messages passed as the room passes them), step by
+// step into baseline mp-naval: the lobby, the build (the stock destroyer), both at their ends of the Sound, snapshots
+// with the ships' fields and the host's sea clock, a 127 mm's holes (ho), a torpedo running on both screens and holing her
+// under the water, an anti-ship missile shot down by the close-in gun (mkill), her sinking seen on both screens (down.sea,
+// her snapshots while she goes down, a wreck on the bed: sk), her respawn and the result. Then hostile peers: forged holes,
+// fires and broken backs, mkill floods and far-off kills, bad sh, st, sea and game values, forged torpedoes and downs.
+async function roomNaval() {
+  const t0 = Date.now(), N = await require('./lib/navaltrace.js')(G, ROOM), T = N.trace, F = N.facts, J = (s) => JSON.parse(s), A = N.A, B = N.B;
+  t('naval: the whole battle runs on both screens with nothing thrown (every step, both sides)', Object.values(T).every((s) => !s.host.err.length && !s.client.err.length),
+    Object.entries(T).filter(([, s]) => s.host.err.length || s.client.err.length).map(([k, s]) => k + ': ' + s.host.err.concat(s.client.err).join('; ')));
+  t('naval: the trace is as it was (every step\'s messages both ways and what each screen sees: baseline mp-naval)', !check('mp-naval', T));
+  const st = (k) => T[Object.keys(T).find((x) => x.includes(k))];
+  t('naval: the host opens a naval battle (game naval, the room\'s sea in its state) and the client joins it; a client can\'t change the sea',
+    st('host and join').host.sent.some((s) => /"game":"naval","sea":"calm"/.test(s)) && st('cannot change').client.sees.sea === 'calm' && B(`MP.state.settings.sea === 'calm' && MP.naval && !MP.ground && MP.zoned`) && A(`MP.state.settings.sea === 'calm'`));
+  t('naval: the build takes ships, from the money\'s stock destroyer ($120k: the Arley) on both screens', J(F.build.host)[1][0] === 'arley' && J(F.build.client)[1][0] === 'arley' && J(F.build.host)[0].kinds.join() === 'ship', F.build);
+  const sh = J(F.starts.host), sc = J(F.starts.client);
+  t('naval: each starts at its own end of the Sound, 9.4 km apart (the host West, the client East), afloat on both screens',
+    Math.hypot(sh[1].e - 15100, sh[1].z - 4600) < 1 && Math.hypot(sc[1].e - 24500, sc[1].z - 4600) < 1 && st('a few seconds afloat').host.sees.ghost.afloat && st('a few seconds afloat').client.sees.ghost.afloat, [sh, sc]);
+  const snaps = (s, who) => s[who].sent.filter((x) => /"t":"s"/.test(x)), count = (L) => L.reduce((n, x) => n + (+(/^(\d+)x /.exec(x) || [0, 1])[1]), 0);
+  t('naval: a ship\'s snapshots carry her telegraph and rudders (sh) and afloat (af) after the old fields; the host\'s carry its sea clock (st), the client\'s never',
+    snaps(st('a few seconds afloat'), 'host').every((x) => /"k":"t,th,b,P,V,Q,W,C,g,l,sh,af,st"/.test(x)) && snaps(st('a few seconds afloat'), 'client').every((x) => /"k":"t,th,b,P,V,Q,W,C,g,l,sh,af"/.test(x)),
+    [snaps(st('a few seconds afloat'), 'host'), snaps(st('a few seconds afloat'), 'client')]);
+  const sea = [J(F.sea.host), J(F.sea.client)];
+  t(`naval: the client's sea runs on the host's clock (st): the two agree within ${Math.abs(sea[0][2] - sea[1][2]).toFixed(4)} s (≤ 0.01) though the client's flight clock differs`, Math.abs(sea[0][2] - sea[1][2]) <= 0.01, sea);
+  const shl = J(F.shells.client);
+  t('naval: the host\'s 127 mm rounds into her hull go to her owner with the holes they tore (ho rows); her own ship is holed by them', st('three 127 mm').host.sent.some((x) => /"t":"hit".*"ho":\d/.test(x)) && shl.holes > shl.was && shl.holes > 0.01, shl);
+  const tr = [J(F.torpRun.host), J(F.torpRun.client)], th = J(F.torpHit.client);
+  t('naval: the host\'s torpedo runs as an id\'d stor shot (its launch and an update a second): a copy runs on her screen beside the real one, and ends with it (x: it went off)',
+    tr[0].fired && tr[0].ours === 1 && tr[1].copies === 1 && st('torpedo runs').host.sent.some((x) => /"k":"stor","id":1,"end":1,"x":1/.test(x)) && th.copies === 0, [tr, th]);
+  t(`naval: ...and holes her under the water (${(th.holes - th.was).toFixed(2)} m² more, ${th.water} m³ in), sent as a blast with its holes`, th.holes - th.was > 1 && th.water > 10 && st('torpedo runs').host.sent.some((x) => /"t":"hit".*"k":"blast","ho":\d/.test(x)), th);
+  const gh1 = J(F.shells.host), gh2 = J(F.torpHit.host);
+  t(`naval: her holes and fires go to everyone as they change (hull, twice a second at most): the host's ghost of her carries the same holes (${gh2.ghostHoles} m² against her ${th.holes}) and fires`,
+    Math.abs(gh1.ghostHoles - shl.holes) < 0.01 && Math.abs(gh2.ghostHoles - th.holes) < 0.05 && gh2.ghostFires === th.fires && Object.values(T).some((s) => s.client.sent.some((x) => /"t":"hull","ho":\d+,"fi":\d+/.test(x))) && !Object.values(T).some((s) => s.host.sent.some((x) => /"t":"hull"/.test(x))), [gh1, gh2, th]);
+  const am = [J(F.asm.client), J(F.asm.host)];
+  t('naval: her anti-ship missile (msl with asm) is shot down by the host\'s close-in gun on the host\'s screen: an mkill to her, who ends it (killed, gone: mx), the host\'s ship unhurt',
+    st('fires an anti-ship').client.sent.some((x) => /"t":"msl","id":1,"tg":1,"asm":1/.test(x)) && st('close-in gun').host.sent.some((x) => /"t":"mkill","pid":2,"id":1/.test(x)) && am[0].fired && !am[0].live && am[0].dead && am[0].killedBy === 1 && am[1].copies === 0 && !am[1].hit, am);
+  const dn = J(F.down.host), dc = J(F.down.client);
+  t('naval: holed past saving she founders: her down carries sea (why: sunk, where); on the host\'s screen her ghost stays, doomed, going down (no fireball, no drop)',
+    T[Object.keys(T).find((k) => k.includes('founders'))].client.sent.some((x) => /"t":"down","by":1,"sea":"sunk@"/.test(x)) && dc.fate === 'sunk' && dc.sinking && dn.ghost && dn.ghost.fate === 'sunk' && dn.ghost.sinking, [dn, dc]);
+  t(`naval: ...her snapshots go on while she sinks, and the host sees her go down with her (${F.down.hostDepth} m, then ${F.sinking.hostDepth} m; ${F.sinking.clientDepth} m on her own screen)`,
+    count(snaps(st('goes down'), 'client')) >= 120 && F.sinking.hostDepth < F.down.hostDepth - 3 && Math.abs(F.sinking.hostDepth - F.sinking.clientDepth) <= 1, F.sinking);
+  const en = [J(F.end.host), J(F.end.client)], wa = F.end.wreckAt.map((x) => x && J(x));
+  t('naval: on the bed (the Sound is shallow) she is a wreck on both screens, at the same place within 0.1 m (sk on her last snapshot); the sinking took her ticket price, and the host the kill',
+    en[0].wreck && en[0].wreck.pid === 2 && !en[0].ghost && en[1].me.wreck && !!wa[0] && !!wa[1] && Math.hypot(wa[0].e - wa[1].e, wa[0].z - wa[1].z) < 0.1 && en[0].tk === '600/522' && F.end.hostDeaths === '[[1,1,0,0],[2,0,1,1]]'
+    && T[Object.keys(T).find((k) => k.includes('on the bed') || k.includes('goes down'))] && Object.values(T).some((s) => s.client.sent.some((x) => /"sk":2/.test(x))), [en, wa, F.end.hostDeaths]);
+  const rs = [J(F.respawn.client), J(F.respawn.host)], rz = J(F.result.host);
+  t('naval: she respawns at her end of the Sound, her wreck kept on both screens; time up, the host\'s team wins on tickets (a naval result, the Sound)',
+    rs[0].back && rs[0].wrecks === 1 && rs[0].kept && Math.hypot(rs[0].at.e - 24500, rs[0].at.z - 4600) < 1 && rs[1].ghost && rs[1].wrecks === 1 && rz[0] === 0 && rz[1] === 'time' && rz[2] === true && rz[3] === 'sound' && J(F.result.client)[0] === 'results', [rs, rz, F.result.client]);
+  console.log(`  (the naval battle: ${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+
+  // ---- hostile peers (the host's copy of the game, A; the client, pid 2, is the forger)
+  A(`var mine = Flight.vessels.filter((x) => !x.remote && !x.foreign), me = Flight.active, hull = me.parts.find((p) => p.def.shull), gun = me.parts.find((p) => p.def.weapon), h0 = holeA(me), F0 = me.parts.filter((p) => p.fire > 0).length;
+    var rowAt = (p, a) => [p.id, p.x, p.y, partZ(p), a];
+    var good = Ship.cleanHoles([rowAt(hull, 0.5)], mine).length;
+    var bad = [[hull.id, NaN, 0, 0, 1], [hull.id, Infinity, 0, 0, 1], [hull.id, hull.x, hull.y, partZ(hull), 0], [hull.id, hull.x, hull.y, partZ(hull), -1], [hull.id, hull.x, hull.y, partZ(hull), 21], [hull.id, hull.x + 500, hull.y, partZ(hull), 1],
+      [gun.id, gun.x, gun.y, partZ(gun), 1], [999999, 0, 0, 0, 1], ['1', 0, 0, 0, 1], [hull.id, '0', 0, 0, 1], [hull.id, 0, 0, 0], [hull.id, 0, 0, 0, 1, 1], null, 'x', {}, [[hull.id]], [hull.id, hull.x, hull.y, partZ(hull), { valueOf: () => 1 }]];
+    var cleaned = Ship.cleanHoles(bad, mine).length, many = Ship.cleanHoles(Array.from({ length: 40 }, () => rowAt(hull, 0.01)), mine).length, notArr = [null, 5, 'x', {}].map((r) => Ship.cleanHoles(r, mine).length).join();
+    var fires = Ship.cleanFires([[gun.id, 5], [gun.id, NaN], [999999, 0.5], [hull.id, 0.5, 1e9, 0, 0], [hull.id, -1], ['x', 0.5], [hull.id, 0.5, 0], gun.id], mine);`);
+  t('naval (hostile): forged hole rows are cleaned away (NaN, Infinity, a ≤ 0 or over 20, outside the part\'s box + 1 m, not a hull, not ours, strings, short or long rows, junk); 16 at most a message; nothing thrown',
+    A(`good === 1 && cleaned === 0 && many === 16 && notArr === '0,0,0,0'`), A('[good, cleaned, many, notArr]'));
+  t('naval (hostile): forged fire rows: odds clamped to 0.95, a place outside the part dropped (the fire kept, at its middle), NaN, negative, not ours and junk refused',
+    A(`fires.length === 2 && fires[0][2] === 0.95 && fires[1][1] === hull && fires[1][3] === null`), A('fires.map((f) => [f[1].id, f[2], f[3]])'));
+  A(`var dmg0 = hpOf(me), fate0 = me.fate || null; Net.out = [];
+    emit({ t: 'hit', f: 2, to: 1, list: [], k: 'blast', ho: Array.from({ length: 30 }, () => [hull.id, hull.x, hull.y, partZ(hull), 0.02]), fi: [[hull.id, 0.95]], kb: hull.id });
+    emit({ t: 'hit', f: 2, to: 1, list: [], k: 'blast', ho: 'x', fi: { a: 1 }, kb: 'x' }); emit({ t: 'hit', f: 2, to: 1, list: [], ho: [[NaN]], kb: 1e300 });
+    var hNow = holeA(me), holesN = me.parts.reduce((s, p) => s + (p.holes ? p.holes.length : 0), 0);`);
+  t('naval (hostile): a forged hit with 30 hole rows takes 16, a kb on a destroyer\'s hull (class X: no back to break) does nothing; junk ho, fi and kb are ignored; nothing thrown',
+    A(`Math.abs(hNow - h0 - 16 * 0.02) < 1e-9 && !me.fate && me.parts.includes(hull) && !hull.broken`), A('[h0, hNow, me.fate]'));
+  // mkill: our missile (a launch faked as ours), the client's ghost 700 m off it; a flood, far-off and junk kills
+  A(`var fake = (d) => { const g = MP.peers.get(2).ghost, s = { k: 'missile', b: EARTH, x: g.x + d, y: g.y, z: g.z, vx: 0, vy: 0, vz: 0, dx: 1, dy: 0, dz: 0, t: 0, life: 99, owner: me };
+      Combat.S.shots.push(s); MP.sendMissile(s, {}); return [s, MP.missiles.get(s).id]; };
+    var [far, farId] = fake(15000), [n1, id1] = fake(500); __P += 2000;
+    for (const m of [{ pid: 1, id: farId }, { pid: 3, id: id1 }, { pid: 1, id: 'x' }, { pid: 1, id: 1e9 }, { pid: '1', id: id1 }, { id: id1 }]) emit(Object.assign({ t: 'mkill', f: 2 }, m));
+    var farLive = !far.dead, n1Live = !n1.dead; emit({ t: 'mkill', f: 2, pid: 1, id: id1 }); var n1Dead = n1.dead;
+    __P += 1000; var flood = []; for (let i = 0; i < 30; i++) flood.push(fake(300)); for (const [s, id] of flood) emit({ t: 'mkill', f: 2, pid: 1, id }); var killed = flood.filter(([s]) => s.dead).length;
+    __P += 1000; for (const [s, id] of flood) if (!s.dead) emit({ t: 'mkill', f: 2, pid: 1, id }); var killed2 = flood.filter(([s]) => s.dead).length;
+    emit({ t: 'mkill', f: 1, pid: 1, id: farId }); var self = far.dead;`);
+  t('naval (hostile): an mkill is believed only for a missile of ours with one of the sender\'s craft near enough to have killed it (her close-in gun\'s 3 km, her launcher\'s SAMs\' 13 km: one 15 km off, someone else\'s, junk ids refused), at most 10 a second from a player',
+    A(`farLive && n1Live && n1Dead && killed === 10 && killed2 === 20 && !self`), A('[farLive, n1Live, n1Dead, killed, killed2, self]'));
+  // bad snapshot fields, sea clock and settings
+  A(`var g2 = MP.peers.get(2).ghost, base = Object.assign({}, MP.peers.get(2).snap), tel0 = g2.sh.tel, threw = null;
+    try { for (const sh of [[9, 0], ['1', 2], [1, NaN], [1, 99], 'x', [1], [1, 2, 3], null, { 0: 1, 1: 2 }]) { emit(Object.assign({}, base, { f: 2, sh, af: 'yes' })); MP.beforeUpdate(0.016); } } catch (e) { threw = String(e); }
+    var telOk = g2.sh.tel === tel0, afOk = g2.afloat === false;`);
+  t('naval (hostile): a snapshot\'s bad sh (out of range, strings, NaN, wrong lengths, junk) leaves the ghost\'s telegraph as it was; af anything but 1 is "not afloat"; nothing thrown', A('telOk && afOk && threw === null'), A('[telOk, afOk, threw]'));
+  B(`var off0 = Ship.S.seaOff, threw = null, base = Object.assign({}, MP.peers.get(1).snap);
+    try { for (const st of [NaN, Infinity, 1e20, '5', null, {}, [1]]) { emit(Object.assign({}, base, { f: 1, st })); } emit(Object.assign({}, base, { f: 2, st: 0 })); } catch (e) { threw = String(e); }
+    var offOk = Ship.S.seaOff === off0 && Number.isFinite(Ship.S.seaOff);`);
+  t('naval (hostile): a junk sea clock (NaN, Infinity, 1e20, a string, null, objects), or one from anyone but the host, leaves our sea alone', B('offOk && threw === null'), B('[off0, Ship.S.seaOff, threw]'));
+  B(`var st0 = JSON.stringify(MP.state.settings); Net.out = []; for (const [k, v] of [['sea', 'rough'], ['game', 'air'], ['sea', '__proto__']]) MP.setSetting(k, v);
+    var setOk = JSON.stringify(MP.state.settings) === st0 && !(Net.out || []).length;
+    MP.applyState(Object.assign(JSON.parse(JSON.stringify(MP.state)), { settings: Object.assign({}, MP.state.settings, { sea: '__proto__' }) })); var seaJunk = Ship.sea();`);
+  t('naval (hostile): a client can\'t set the sea or the game (only the host\'s lobby does); a sea in the state that is no sea state reads as moderate', B(`setOk && seaJunk === 'moderate'`), B('[setOk, seaJunk]'));
+  // (review hostile-1) a forged ghost kept on our side, overlapping her hull, every frame for 4 s: closing at 60 m/s, then
+  // spinning at 1e8 rad/s, then still: it meets us across the water only, its speed capped (25 m/s) and counted once (a
+  // blow, the first touch after a second apart), its spin as a ship's (1.5 rad/s), never a deck we ride
+  A(`var blows = 0, cd0 = Combat.damage; Combat.damage = function (v, p, d, why) { if (v === me && why === 'crash') blows++; return cd0.apply(this, arguments); };
+    // (push: how far she moved each frame past what her own speed carries her: the push-out's shove, at most 3 m/s × 4 s)
+    var ram = (V, W, off) => { const P2 = MP.peers.get(2), base = JSON.parse(JSON.stringify(P2.snap)), h0 = holeA(me), hp0 = hpOf(me), b0 = blows; let top = 0, push = 0;
+      for (let i = 0; i < 240; i++) { const side = me.toWorld(me.com.x, me.com.y, (me.com.z || 0) + off), d = [side.x - me.x, side.y - me.y, side.z - me.z], dl = Math.hypot(...d), p0 = [me.x, me.y, me.z], s0 = me.speed();
+        emit(Object.assign({}, base, { f: 2, th: __T, P: [side.x, side.y, side.z], V: d.map((x) => -x / dl * V), Q: [me.q.w, me.q.x, me.q.y, me.q.z], W: [0, W, 0], C: base.C })); frame(); top = Math.max(top, me.speed());
+        push += Math.max(0, Math.hypot(me.x - p0[0], me.y - p0[1], me.z - p0[2]) - Math.max(s0, me.speed()) / 60); }
+      return { top: +top.toFixed(2), push: +push.toFixed(2), blows: blows - b0, holes: +(holeA(me) - h0).toFixed(3), hp: hp0 - hpOf(me), fate: me.fate || null, finite: [me.x, me.vx, me.q.w, me.av.x].every(Number.isFinite), vw: [Math.hypot(...MP.peers.get(2).ghost.av ? [MP.peers.get(2).ghost.av.x, MP.peers.get(2).ghost.av.y, MP.peers.get(2).ghost.av.z] : [0])] }; };
+    var rams = [ram(60, 0, 14), ram(0, 1e8, 14), ram(0, 0, 10)]; Combat.damage = cd0;`);
+  t('naval (hostile): a ghost forged onto our side for 4 s (closing at 60 m/s, spinning at 1e8 rad/s, or still and deep in her) rams her once at most, as a ship of its mass at 25 m/s: she moves under 10 m/s, never doomed, and is pushed out of it at 3 m/s at most (it had flung her at 6,560 km/s and sunk her in a second)',
+    A(`rams.every((r) => r.finite && r.top < 10 && r.blows <= 1 && !r.fate && r.push <= 3 * 4 + 1) && rams[1].vw[0] <= 1.5 + 1e-9 && rams[2].blows === 0`), A('rams'));
+  // (S10) an honest ghost: off her beam (1.5 s apart, 200 m off), then closing from 45 m at 10 m/s along its own path; at
+  // the touch it stops (its owner's screen bounces it). One blow, our share of two Arleys meeting at 10 m/s: she is thrown
+  // off at 1-5 m/s (its first touch's way out is often up a deck edge: met across the water from her centre, not lost)
+  A(`var blowsH = 0, cd1 = Combat.damage; Combat.damage = function (v, p, d, why) { if (v === me && why === 'crash') blowsH++; return cd1.apply(this, arguments); };
+    var hon = (() => { const P2 = MP.peers.get(2), base = JSON.parse(JSON.stringify(P2.snap)), side = me.toWorld(me.com.x, me.com.y, (me.com.z || 0) + 1), u = [side.x - me.x, side.y - me.y, side.z - me.z], ul = Math.hypot(...u);
+      for (let k = 0; k < 3; k++) u[k] /= ul;
+      const at = (o) => [me.x + u[0] * o, me.y + u[1] * o, me.z + u[2] * o], send = (P, V) => emit(Object.assign({}, base, { f: 2, th: __T, P, V, Q: [me.q.w, me.q.x, me.q.y, me.q.z], W: [0, 0, 0], C: base.C }));
+      for (let i = 0; i < 90; i++) { send(at(200), [0, 0, 0]); frame(); }
+      const v0 = me.speed(); let off = 45, P = null, top = 0, t = 0;
+      for (let i = 0; i < 60 * 8; i++) { if (!P) { off -= 10 / 60; send(at(off), u.map((x) => -x * 10)); if (blowsH) P = at(off); } else { send(P, [0, 0, 0]); t++; } frame(); top = Math.max(top, me.speed()); if (t > 60) break; }
+      return { v0: +v0.toFixed(3), touch: P ? +off.toFixed(1) : null, top: +top.toFixed(2), blows: blowsH, finite: [me.x, me.vx, me.q.w].every(Number.isFinite) }; })(); Combat.damage = cd1;`);
+  t('naval: an honest ship ghost closing at 10 m/s across the water rams once (S10): one blow, her own ship thrown off at 1-5 m/s',
+    A(`hon.finite && hon.touch != null && hon.blows === 1 && hon.top > 1 && hon.top < 5`), A('hon'));
+  // forged torpedoes and downs
+  B(`var g1 = MP.peers.get(1).ghost, P = [g1.x, g1.y, g1.z], n0 = Combat.shots.filter((s) => s.k === 'stor').length, threw2 = null;
+    try { for (const m of [{ id: NaN, P, V: [1, 0, 0] }, { id: 7, P: 'x', V: [1, 0, 0] }, { id: 8, P, V: [1e6, 0, 0] }, { id: 9, P: [1e12, 0, 0], V: [1, 0, 0] }, { id: 10, end: 1 }, { id: -1, P, V: [1, 0, 0] }]) emit(Object.assign({ t: 'shot', f: 1, k: 'stor', b: 'earth' }, m));
+      for (let i = 0; i < 40; i++) emit({ t: 'shot', f: 1, k: 'stor', id: 100 + i, b: 'earth', P, V: [10, 0, 0], D: [1, 0, 0], dep: 6 }); } catch (e) { threw2 = String(e); }
+    var n1 = Combat.shots.filter((s) => s.k === 'stor' && s.net === 1).length - n0;`);
+  t('naval (hostile): forged torpedoes (no id, bad places, too fast, off the Earth, an end for none) are dropped; at most 16 of a player\'s copies run; none ever hits', B(`threw2 === null && n1 === 16 && Combat.shots.filter((s) => s.k === 'stor' && s.net === 1).every((s) => s.dmg === 0)`), B('[threw2, n1]'));
+  A(`var P2 = MP.peers.get(2), g3 = P2.ghost, threw3 = null;
+    try { emit({ t: 'down', f: 2, by: 1, P: [g3.x, g3.y, g3.z], sea: { why: 'exploded', at: 'x' } }); } catch (e) { threw3 = String(e); }
+    var gone = !P2.ghost && !P2.sink;`);
+  t('naval (hostile): a down whose sea is no fate is an ordinary down (the ghost goes, no sinking kept); nothing thrown', A('threw3 === null && gone'), A('[threw3, gone]'));
+  // (review hostile-3, -4, -2, play-2) a new ship of hers (an Arley with a Torpedo Decoy) 1 km off our beam: her draft is
+  // worked out only when a torpedo needs it; af believed only near the sea; her noisemakers reach our torpedoes; a forged
+  // wreck in the air is refused
+  A(`var tdRows = rowsOf('arley'), tdN = 0; for (const r of tdRows) if (r[1] === 'decoy' && tdN < 1) { r[1] = 'torpDecoy'; tdN++; }
+    emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'ship', parts: tdRows }); MP.player(2).flying = true;
+    var at1 = me.toWorld(me.com.x, me.com.y, (me.com.z || 0) + 1000), up1 = Math.hypot(at1.x, at1.y, at1.z), seaAt = (h) => [at1.x / up1 * (EARTH.radius + h), at1.y / up1 * (EARTH.radius + h), at1.z / up1 * (EARTH.radius + h)];
+    var snap1 = (P, more) => { __T += 50; __P += 50; emit(Object.assign({ t: 's', f: 2, th: __T, b: 'earth', P, V: [0, 0, 0], Q: [me.q.w, me.q.x, me.q.y, me.q.z], W: [0, 0, 0], C: [0, 0, 0], g: 0, l: 0, sh: [0, 0] }, more)); MP.beforeUpdate(1 / 60); return MP.peers.get(2).ghost; };
+    var g5 = snap1(seaAt(0), { af: 1 }), draft0 = g5.draft, afSea = g5.afloat;
+    var g5b = snap1(seaAt(500), { af: 1 }), afAir = g5b.afloat, unitAir = MP.groundUnits(__P).units.find((u) => u.team === MP.player(2).team), gdAir = unitAir ? unitAir.gd : null;
+    snap1(seaAt(0), { af: 1 });`);
+  t('naval (hostile): a snapshot\'s af is believed only near the sea: 500 m up the ghost is no ship afloat, and takes no zone (it had: zone C in 20 s)',
+    A(`afSea === true && afAir === false && gdAir === false`), A('[afSea, afAir, gdAir]'));
+  A(`var td = g5.parts.find((p) => p.def.decoy && p.def.decoy.torp), hull5 = g5.parts.find((p) => p.def.shull), ok0 = !!td;
+    var nzBad = [{ nz: [hull5.id, 1, 0] }, { nz: 'x' }, { nz: [td.id, NaN, 0] }, { nz: [td.id] }, { nz: [999999, 1, 0] }, { nz: [String(td.id), 1, 0] }].map((m) => Ship.netNoise(g5, m, Flight));
+    var s5 = Ship.torpAt(me, (() => { const L = (v) => { const P = {}; Terrain.locate(EARTH, v.x, v.y, v.z, P); return { e: -wrapAngle(P.a - EARTH.padAngle) * EARTH.radius, z: P.z }; }; const a = L(me), b = L(g5); return Math.atan2(b.e - a.e, -(b.z - a.z)); })(), Flight);
+    var nzOk = []; for (let i = 0; i < 6; i++) { emit({ t: 'cm', f: 2, nz: [td.id, 1, 0] }); nzOk.push(g5.parts.includes(td) && td.dAmmo); }
+    for (let i = 0; i < 360 && !(s5 && s5.heard); i++) frame(); // (its seeker looks once it has run a second in the water)
+    var heard = s5 && s5.heard ? s5.heard.size : 0, draft1 = Ship.draftOf(g5);`);
+  t('naval (hostile): her Torpedo Decoy\'s noisemakers reach our torpedo (cm\'s nz: it hears them, as solo); one only from a Torpedo Decoy of hers with rounds left (4: its ammo), junk refused; nothing thrown',
+    A(`ok0 && nzBad.every((x) => x === false) && JSON.stringify(nzOk) === '[3,2,1,0,0,0]' && !!s5 && heard >= 1`), A('[ok0, nzBad, nzOk, !!s5, heard]'));
+  t('naval (hostile): a ship\'s ghost is built without her draft (no hydrostatics at a spawn); a torpedo running at her works it out once (and once a design)',
+    A(`draft0 === null && draft1 > 2 && draft1 < 12 && g5.draft === draft1`), A('[draft0, draft1]'));
+  A(`var P5 = MP.peers.get(2), threw5 = null; try { emit({ t: 'down', f: 2, by: 0, P: [g5.x, g5.y, g5.z], sea: { why: 'sunk', at: [g5.x, g5.y, g5.z] } }); var sinking5 = !!P5.sink; __T += 50; __P += 50;
+      emit(Object.assign({}, P5.snap, { f: 2, th: __T, P: seaAt(300), V: [0, 0, 0], sk: 2, af: 0 })); for (let i = 0; i < 30; i++) frame(); } catch (e) { threw5 = String(e); }
+    var w5 = MP.wrecks.find((w) => w.pid === 2 && w.v === g5);`);
+  t('naval (hostile): a forged sinking whose last snapshot (sk) puts her wreck 300 m up leaves no wreck (it hung there, solid, five minutes): she goes under where she was',
+    A(`threw5 === null && sinking5 && !w5 && !P5.ghost`), A('[threw5, sinking5, !!w5]'));
+
+  // ---- old rooms: a sandbox with no ship sends its messages as before (no sea in its state, no sh, af or st on a plane's
+  // snapshots); a peer's ship in it brings the host's sea clock (st), and the room's sea only once the host sets one
+  const Q = G.load({ mp: true, combat: true }), X = (c) => G.run(Q, c);
+  X(ROOM); await X(`MP.host('sandbox', 'local')`);
+  X(`MP.addPlayer(2, 'Bea'); __design = { name: 'Bird', kind: 'plane', parts: templateRows(TEMPLATES.mustang) }; MP.startFlight(false);
+    var snapNow = () => { MP.sent = { s: -1e9, pv: 1e12, hp: 1e12, hpSig: '' }; Net.out = []; Combat.frame(Flight, 1 / 60); MP.afterUpdate(); return sent('s')[0][0]; };
+    var s1 = snapNow(), st1 = JSON.stringify(MP.state.settings), sea1 = Ship.sea();
+    emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'ship', parts: rowsOf('cyclon') });
+    var cy = (() => { const ps = partsFromDesign(templateRows(TEMPLATES.cyclon)), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'ship'; v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, -3000), 0, 0, Math.PI); Ship.launch(v, { e: -3000, z: 0, yaw: Math.PI }); return v; })();
+    emit({ t: 's', f: 2, th: __T, b: 'earth', P: [cy.x, cy.y, cy.z], V: [0, 0, 0], Q: [cy.q.w, cy.q.x, cy.q.y, cy.q.z], W: [0, 0, 0], C: [cy.com.x, cy.com.y, cy.com.z || 0], g: 0, l: 0, sh: [2, -5], af: 1 });
+    MP.beforeUpdate(0.016); var gh = MP.peers.get(2).ghost, s2 = snapNow(); MP.setSetting('sea', 'rough'); var st2 = MP.state.settings.sea, sea2 = Ship.sea();`);
+  t('old rooms: a sandbox with no ship: a plane\'s snapshot has the old fields only, the room\'s state no sea', X(`Object.keys(s1).join() === 't,th,b,P,V,Q,W,C,g,l' && !('sea' in JSON.parse(st1)) && sea1 === 'moderate'`), X('[Object.keys(s1), st1]'));
+  t('old rooms: ...a peer\'s ship arrives: her ghost afloat at her telegraph and rudder (sh: [2, -5]), a hydro ghost (her hull, never stepped), and the host\'s snapshots carry its sea clock (st, last)',
+    X(`!!gh && gh.hydro && !!gh.sh && gh.afloat && gh.sh.tel === 2 && gh.sh.rud === -5 && gh.sh.rudders.every((p) => p.rud === -5) && Ship.draftOf(gh) > 0.5 && Object.keys(s2).join() === 't,th,b,P,V,Q,W,C,g,l,st' && Math.abs(s2.st - Ship.seaT(Flight)) < 1e-3`), X('[Object.keys(s2), gh && gh.sh.tel, gh && gh.draft]'));
+  t('old rooms: the sandbox\'s host sets its sea at any time (rough): everyone\'s waves', X(`st2 === 'rough' && sea2 === 'rough'`), X('[st2, sea2]'));
+  // (review old-1) her patrol boat carries no close-in gun and no launcher: her mkill of our missile beside her is refused
+  X(`var fk = { k: 'missile', b: EARTH, x: gh.x + 300, y: gh.y, z: gh.z, vx: 0, vy: 0, vz: 0, dx: 1, dy: 0, dz: 0, t: 0, life: 99, owner: Flight.active }; Combat.S.shots.push(fk); MP.sendMissile(fk, {});
+    __P += 2000; emit({ t: 'mkill', f: 2, pid: 1, id: MP.missiles.get(fk).id }); var fkLive = !fk.dead && Combat.S.shots.includes(fk);`);
+  t('old rooms: an mkill from a player with no point defence aboard (a close-in gun, or a launcher that shoots missiles) is refused, though her craft is 300 m from our missile: an air or a ground battle never believes one (it had: any forger\'s)', X('fkLive'));
+  // a helicopter joining a naval battle starts 300 m over the sea (GroundMode.placement): its engine started and its
+  // collective at a hover (MP.hover), held there (MP.hoverStep, each frame) until its player first touches the throttle
+  // or the stick, so it hangs there for its player rather than sinking into the sea (review play-4: it had sunk 4 m/s)
+  X(`var hv = ['dragonfly', 'hummingbird'].map((key) => { const ps = partsFromDesign(templateRows(TEMPLATES[key])), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'heli'; v.stages = computeStages(ps, v.adj, findControlPart(ps).id); v.rebuildGroups();
+      const P = GroundMode.placement('sound', 0, 0, 'heli'); v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), VEHICLE_KINDS.heli.launchRot, P.z, P.yaw); const r = v.radius(); for (const k of ['x', 'y', 'z']) v[k] += (v[k] / r) * P.air.alt; v.landed = false; v.throttle = 0;
+      Flight.stage = () => { for (const id of v.stages[v.stageIdx] || []) { const p = v.byId.get(id); if (p && p.def.thrust) p.active = true; } v.stageIdx++; };
+      const was = [Flight.active, Flight.vessels, Flight.destroyed]; Flight.active = v; Flight.vessels = [v]; Flight.destroyed = false;
+      MP.hover(v); const thr = v.throttle, a0 = v.altitude(), F = { time: 0, toast() {}, vessels: [v], active: v, broken: [], ripParts() {}, breakParts() {} };
+      let lo = 0, hi = 0; for (let i = 0; i < 60 * 30; i++) { MP.hoverStep(); for (let k = 0; k < 2; k++) { v.physicsStep(1 / 120, F); F.time += 1 / 120; } const d = v.altitude() - a0; lo = Math.min(lo, d); hi = Math.max(hi, d); }
+      const held = !!MP.hoverHold; v.throttle = 0.9; MP.hoverStep(); const let1 = !MP.hoverHold && v.throttle === 0.9;
+      MP.hover(v); v.ctl.v = 1; MP.hoverStep(); const let2 = !MP.hoverHold; v.ctl.v = 0;
+      [Flight.active, Flight.vessels, Flight.destroyed] = was; MP.hoverHold = null;
+      return { key, thr, on: v.rotors.every((p) => p.active), lo: +lo.toFixed(2), hi: +hi.toFixed(2), air: P.air, held, let1, let2 }; });`);
+  t('naval: a helicopter joining over the sea starts 300 m up with its rotor turning, held at a hover hands-off (within 2 m over 30 s), let go at its player\'s first touch of the throttle or the stick', X(`hv.every((h) => h.air.alt === 300 && h.on && h.thr > 0.2 && h.thr <= 1 && h.lo > -2 && h.hi < 2 && h.held && h.let1 && h.let2)`), X('hv'));
+  // (review old-3) an air and a ground battle have no sea of their own: neither the host's game nor a client's calls into
+  // ship.js (no sea set, no clock slewed), and each keeps its own Settings → Sea, in the lobby, the battle and after
+  for (const game of ['air', 'ground']) {
+    const Q1 = G.load({ mp: true, combat: true }), Y = (c) => G.run(Q1, c), Q2 = G.load({ mp: true, combat: true }), Z = (c) => G.run(Q2, c);
+    const WRAP = `var shipCalls = {}; for (const k of Object.keys(Ship)) if (typeof Ship[k] === 'function') { const f = Ship[k]; Ship[k] = function (...a) { shipCalls[k] = (shipCalls[k] || 0) + 1; return f.apply(this, a); }; }`;
+    Y(ROOM); Z(ROOM); Y(`Ship.setSea('rough')`); Z(`Ship.setSea('calm')`); Y(WRAP); Z(WRAP);
+    await Y(`MP.host('pvp', 'local', ${game === 'ground' ? "{ game: 'ground' }" : '{}'})`);
+    Y(`MP.addPlayer(2, 'Bea'); MP.push(); MP.tick(); MP.startMatch(); flush(); MP.tick();`);
+    const st = Y('JSON.stringify(MP.state)');
+    Z(`Net.isHost = false; Net.me = 2; MP.begin(); MP.applyState(${st}); MP.tick(); var seaIn = Ship.S.sea; MP.end(); var seaOut = Ship.S.sea;`);
+    t(`old rooms: an ${game} battle: no call into ship.js on the host's screen or a client's, and their own seas kept (rough, calm) in the room and after it`,
+      Y(`Object.keys(shipCalls).length === 0 && Ship.S.sea === 'rough'`) && Z(`Object.keys(shipCalls).length === 0 && seaIn === 'calm' && seaOut === 'calm'`), [Y('JSON.stringify(shipCalls)'), Z('JSON.stringify([shipCalls, seaIn, seaOut])')]);
+  }
+}
+
 (async () => {
   await groundBattle();
   await roomDeaths();
@@ -867,6 +1072,7 @@ async function roomDronesReview() {
   await roomDrones();
   await groundDrones();
   await roomDronesReview();
+  await roomNaval();
   // ---- the air battle and the sandbox, step by step, exactly as before the ground update (test/lib/mptrace.js:
   // state, messages, toasts, flights and their options, the builder's battle settings, at every step)
   t('an air battle and a sandbox go exactly as before (every state, message, toast and flight: baseline mp-air)', !check('mp-air', await require('./lib/mptrace.js')(G)));

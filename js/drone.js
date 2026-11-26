@@ -399,12 +399,12 @@ const Drone = (() => {
     const sys = typeof Combat !== 'undefined' ? Combat.systems(v)[v.wsel] : null, t = sys && sys.w.kind === 'bomb' ? -1.2217 : c.tilt || 0;
     return v.axis(Math.cos(t), Math.sin(t), 0, out);
   }
-  // (the drones' balance) Is a bay's price cap off? In sandbox play (Career.sandbox) and in a sandbox room a bay takes a
-  // drone of any price; career, battles and the rooms' battles keep the cap (F: a flight, for its room's mode)
+  // (the drones' balance) Is a bay's price cap off? In solo play (every flight is sandbox) and in a sandbox room a bay
+  // takes a drone of any price; the rooms' battles keep the cap (F: a flight, for its room's mode)
   function freeBays(F) {
     if (typeof MP !== 'undefined' && MP.live && MP.state) return MP.state.mode === 'sandbox';
     if (F && F.mp) return F.mp.mode === 'sandbox';
-    return typeof Career !== 'undefined' && !!Career.sandbox;
+    return true;
   }
   // Does a design fit a bay (def.dock)? { ok, why } with the picker's words. A design object ({ kind, parts }) must be a
   // drone; rows or parts are taken as one. free: no price cap (freeBays): its weight, width, parts and kind still count.
@@ -613,7 +613,7 @@ const Drone = (() => {
     if (O.P && now - O.at < 1000 && O.W === W && O.H === H && O.rk === rk) return O.P;
     O.at = now; O.W = W; O.H = H; O.rk = rk;
     const touch = typeof Controls !== 'undefined' && Controls.touch, tr = rectOf('#flight-ui .flight-top-right'), warp = rectOf('#warp'), jam = rectOf('#jam-chip');
-    const top = [tr, warp, jam, rectOf('#mp-bar'), rectOf('#gai-bar'), rectOf('#flight-alert')].filter(Boolean);
+    const top = [tr, warp, jam, rectOf('#mp-bar'), rectOf('#gai-bar'), rectOf('#naval-bar'), rectOf('#flight-alert')].filter(Boolean); // ([WP10] the Naval Range's bar)
     if (rb) {
       top.push({ l: rb.x - rb.R, r: rb.x + rb.R, t: rb.y - rb.R, b: rb.y + rb.R + (rb.lines === 2 ? 28 : 14) });
       if (rb.ty != null && Combat.S.rwr > 1) top.push({ l: W / 2 - 150, r: W / 2 + 150, t: rb.ty - 22, b: rb.ty + 44 }); // (the warning's lines)
@@ -2136,7 +2136,7 @@ const Drone = (() => {
   // the vehicles a drone may lock: ground vehicles at work, not its own tank, an ally or a teammate
   function lockable(v, o) {
     if (!o || o === v || o === v.carrier || o.kind === 'drone' || o.isDebris || o.hulk != null || !working(o)) return false;
-    if (!(isGround(o.kind) || o.gv || (o.gear && o.gear.length))) return false;
+    if (!(isGround(o.kind) || o.gv || (o.gear && o.gear.length) || isSea(o.kind) || (o.sh && o.afloat))) return false; // ([WP9] ships too: a boat, a frigate)
     if (o.ai && (o.ai.ally || o.ai.down)) return false;
     if (o.remote) return typeof MP !== 'undefined' && typeof Net !== 'undefined' && !!MP.enemy && MP.enemy(Net.me, o.remote);
     return true;

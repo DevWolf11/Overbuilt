@@ -292,7 +292,7 @@ for (const [w, h] of [[390, 844], [375, 667], [844, 390], [1280, 720]]) {
   const pg = w === 390 ? page : await phone(w, h);
   if (w === 1280) await pg.setViewportSize({ width: w, height: h });
   const f = await fits(pg);
-  ok(`${w} × ${h}: every kind button fits its label (six: Drone after Armour)`, f.length === 6 && f[5][0] === 'drone' && f.every(([, s, c]) => s <= c), JSON.stringify(f));
+  ok(`${w} × ${h}: every kind button fits its label (seven: Drone after Armour, then the ships update's Ship)`, f.length === 7 && f[5][0] === 'drone' && f[6][0] === 'ship' && f.every(([, s, c]) => s <= c), JSON.stringify(f));
   if (pg !== page) await pg.close();
 }
 
@@ -562,7 +562,7 @@ for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
   const names = r.cards.map((c) => c[0]), stock = await ev(() => Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'drone').map((k) => TEMPLATES[k].name));
   ok('the picker: the stock drones in order, then the hangar\'s drones (not its plane), each with its picture, weight, width and price', r.open && names.join('|') === [...stock, 'Wasp <b>Mk2</b>', 'My quad'].join('|') && r.cards.every((c) => c[4] && /^\d+\.\d kg · \d\.\d\d m · \$[\d,]+$/.test(c[1])), JSON.stringify(r.cards));
   const card = (n) => r.cards.find((c) => c[0] === n);
-  // (the drones' balance: the page plays sandbox, where a bay takes a drone of any price: the Mavik fits; career keeps the cap, below)
+  // (the drones' balance: solo play is sandbox, where a bay takes a drone of any price: the Mavik fits; a battle keeps the cap, below)
   ok('...a tick on those that fit (in sandbox the Mavik too: any price); the heavy one "Too heavy: …", the Lancett too heavy or winged; a name\'s markup shown as text',
     card('Bumble FPV')[2] === '✓ fits' && !card('Bumble FPV')[3] && card('Mavik Scout')[2] === '✓ fits' && !card('Mavik Scout')[3] && /^Too heavy: /.test(card('Wasp <b>Mk2</b>')[2]) && /^(Too dear|Too heavy|Takes winged drones only)/.test(card('Lancett')[2]) && card('Lancett')[3] && !r.bold, JSON.stringify(r.cards));
   ok('...its footer: the rack\'s price covers three drones of up to $3,000 each', /The rack’s price covers three drones of up to \$3,000 each: a cheaper one gives no money back\./.test(r.foot), r.foot);
@@ -574,8 +574,8 @@ for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
   r = await ev(() => { Builder.undo(); const a = Builder.droneChoice; Builder.redo(); return [a, Builder.droneChoice && Builder.droneChoice.name]; });
   ok('...one undo step', r[0] === null && r[1] === 'My quad', JSON.stringify(r));
   r = await ev(() => { Builder.droneChoice = { key: 'mavik' }; Builder.changed(); Builder.selected = Builder.parts.find((p) => p.type === 'dockRack'); Builder.renderInfo(); const sand = { warn: $('#s-warn').textContent, btn: $('#btn-dock').textContent };
-    const m0 = Career.data.mode; Career.data.mode = 'career'; try { Builder.changed(); Builder.renderInfo(); return { sand, warn: $('#s-warn').textContent, btn: $('#btn-dock').textContent }; } finally { Career.data.mode = m0; Builder.changed(); Builder.renderInfo(); } });
-  ok('a Mavik picked: in sandbox the rack carries it; in career it can\'t: "The Drone Rack can’t carry the Mavik Scout (too dear): it carries the Bumble FPV."', r.sand.btn === 'Carries: Mavik Scout ×3 ▸' && !r.sand.warn.includes('can’t carry')
+    const f0 = Drone.freeBays; Drone.freeBays = () => false; try { Builder.changed(); Builder.renderInfo(); return { sand, warn: $('#s-warn').textContent, btn: $('#btn-dock').textContent }; } finally { Drone.freeBays = f0; Builder.changed(); Builder.renderInfo(); } }); // (the cap on, as a room's battle has it)
+  ok('a Mavik picked: in solo play the rack carries it; under a battle\'s cap it can\'t: "The Drone Rack can’t carry the Mavik Scout (too dear): it carries the Bumble FPV."', r.sand.btn === 'Carries: Mavik Scout ×3 ▸' && !r.sand.warn.includes('can’t carry')
     && r.warn.includes('The Drone Rack can’t carry the Mavik Scout (too dear): it carries the Bumble FPV.') && r.btn === 'Carries: Bumble FPV ×3 ▸', JSON.stringify(r));
   r = await ev(() => { Builder.addPart('drCam', -1, 2.5, 0, { att: Builder.parts[0] }); return $('#s-warn').textContent; });
   ok('a drone part on a tank: "Drone parts only work on a drone: carry one in a Drone Rack, Hangar or Launch Tubes."', r.includes('Drone parts only work on a drone: carry one in a Drone Rack, Hangar or Launch Tubes.'), r);

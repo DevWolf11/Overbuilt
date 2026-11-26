@@ -43,7 +43,7 @@ Plain `<script>` files share one global scope. They load in this order (index.ht
 
 | File | Owns |
 |---|---|
-| `util.js` | maths (vectors, quaternions), `fmt`, `store` (localStorage JSON), `$`, `el`, the `Silly` joke flags |
+| `util.js` | maths (vectors, quaternions), `fmt`, `money`, `store` (localStorage JSON), `$`, `el`, the `Silly` joke flags, `Budget` (a multiplayer battle's money: the only money in the game) |
 | `space.js` | bodies, Kepler orbits, patched conics, sites (pad, runway, airfields, carriers), the 2D terrain profile |
 | `terrain.js` | `Terrain`: the 3D ground (real Earth map or generated), shared by physics and renderer |
 | `props.js` | `Props`: the battlefields' solid scenery (Highland Ridge's village, farms, woods, walls and roads, the Runway's sheds and sandbags, the island's tank yard and hamlet), laid out from fixed seeds a slice at a time; colliders in a hash grid that every shot, sight line, vehicle and the AI meet; crushing, shared in a room; the pieces render3d draws |
@@ -55,7 +55,7 @@ Plain `<script>` files share one global scope. They load in this order (index.ht
 | `ui.js`, `world.js` | dialogs, toasts and icons; `Settings`, `FX` particles and the effects API (`FX.death`: staged explosions, fire, smoke, burning debris, drawn from `FX.rnd`), the 2D fallback flight view |
 | `controls.js` | `Keys` (the binding table every keyboard handler reads, and the Keys screen) and `Controls`: touch controls on or off (`body.pc`: a desktop's key hints instead), the HUD's size (`--ui-scale`), the floating stick, the custom touch layout (`rss.layout`) and its editor |
 | `parts3d.js`, `render3d.js` | 3D part models; the three.js renderer for flight, hangar and globe (three.js is lazy-loaded) |
-| `audio.js`, `career.js`, `map.js`, `globe.js` | procedural sound; career and missions; solar-system map; globe map |
+| `audio.js`, `map.js`, `globe.js` | procedural sound; solar-system map; globe map |
 | `combat.js` | weapons, projectiles, missile guidance and countermeasures, damage, target range, AI fighters |
 | `radar.js` | `Radar`: aircraft radar as parts (the big update): what each radar part sees (its cone, reach less stealth, jamming and damage, look-down and notching, the ground in the way; never drones), eyes (6 km less half the stealth), the player's picture four times a second, the pick (`I`, taps), radar off (`O`), the solo radar locks on us and the search strobes an Advanced RWR hears, the controller's call, the scope (`draw`); locks, launch and guidance stay in combat.js and ask here |
 | `death.js` | `Death`, `DEATH`, `FIRE`: the big update's damage model, what 0 hp does, in fixed sections: the air rule (aircraft shot apart: parts torn off, engines dead, half a wing off, the pilot knocked out, a rare mid-air detonation; crippled or down), fire (engines and tanks burning, trails), crash and lifecycle (hulks falling and going up in one fireball, crash sites, junk sinking away), ground (every knock-out a wreck, old cars' too: settle, `wreckFX`'s fire and smoke), the HUD (hit ticks and banners, merged toasts); called from combat.js, flight.js, armour.js, groundai.js and mp.js behind gates an old flight without hits never opens |

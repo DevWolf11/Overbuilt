@@ -10,9 +10,10 @@
 // own: -1 neutral, 0 or 1 the team holding it. p: -1..1, how far it is captured: -1 all team 0's, +1 all team 1's.
 // Tickets stay whole numbers (bleed carries its fractions in `bleed`).
 //
-//   arena(id) -> EARTH.arenas[id] | null;  pick(mapReady) -> 'highland' | 'runway'
+//   arena(id) -> EARTH.arenas[id] | null;  pick(mapReady) -> 'highland' | 'runway';  pickNaval(mapReady) -> 'sound' | null
 //   placement(arenaId, team, slot, kind) -> { e, z, yaw, air?: { alt, speed } } | null   (Flight.start's opts.place)
 //   soloPlace(kind) -> place | null;  obj() -> the live objective | null;  stock(budget) -> template keys, best first
+//   navalStock(budget) -> the ships' template keys, best first (the ships update: a Naval Battle's, NAVAL_STOCK's)
 //   init(arena, settings, teamSizes) -> obj;  tick(obj, dt, units) -> events;  death(obj, team, cost, air) -> tickets
 //   result(obj, timeUp, alive?) -> { winner: 0 | 1 | null, why: 'tickets' | 'wiped' | 'time' | 'draw' } | null
 //   inZone(e, z, zone) -> bool
@@ -25,6 +26,15 @@ const GROUND_STOCK = Object.freeze({
   75000: Object.freeze(['tk72', 'leapard1', 'tk34']), // Cold War
   120000: Object.freeze(['ma1', 'tk72', 'leapard1']), // modern
   fallback: 'technical',
+});
+// [WP10] (the ships update) The stock ships the Naval Practice battle (spec §9.3) picks at each money tier, best first,
+// as GROUND_STOCK's; below the cheapest, the Cyclon. Data only: the battle that reads it comes after the multiplayer
+// package's sea arena.
+const NAVAL_STOCK = Object.freeze({
+  45000: Object.freeze(['cyclon', 'osca', 'zodiak']),
+  75000: Object.freeze(['vizby', 'pegazus', 'osca']),
+  120000: Object.freeze(['arley', 'olivar', 'vizby']),
+  fallback: 'cyclon',
 });
 
 const GroundMode = (() => {
@@ -49,9 +59,12 @@ const GroundMode = (() => {
   };
   // abreast from the centre out: 0, +1, -1, +2, -2, ... (times the spacing)
   const abreast = (k) => (k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) : 0);
-  // who may take a zone: a ground vehicle of one of the two teams, on the ground, slower than 30 m/s
+  // who may take a zone: a ground vehicle of one of the two teams, on the ground, slower than 30 m/s ([WP11] on an arena
+  // that names its own `kinds`, one of those: the Sound's ships, gd then meaning afloat)
   const capturer = (u, GK) => !!u && (u.team === 0 || u.team === 1) && !!u.gd && fin(u.e) && fin(u.z) && fin(u.speed) &&
     Math.abs(u.speed) < CAP_SPEED && (GK ? GK.has(u.kind) : u.kind === 'tank' || u.kind === 'car');
+  const SEA = { abreast: 120, astern: 250, row: 6, alt: 300, heli: 60 }; // [WP11] a sea arena's starts: ships abreast 120 m apart across the pad, six to a row, the next row 250 m astern; helicopters and drones 300 m up, 60 m apart abreast
+  const kindsOf = new Map(); // [WP11] (an arena's own capturer kinds, as a Set)
   const inZone = (e, z, zone) => {
     if (!zone || !fin(e) || !fin(z)) return false;
     const de = e - zone.e, dz = z - zone.z;
@@ -62,6 +75,8 @@ const GroundMode = (() => {
     arena(id) { return typeof EARTH !== 'undefined' && EARTH.arenas && typeof id === 'string' && hasOwnArena(id) ? EARTH.arenas[id] : null; },
     // Highland Ridge on the real map; without it, the space centre's own runway
     pick(mapReady) { return mapReady ? 'highland' : 'runway'; },
+    // [WP11] the Naval Battle's arena: the Shetland Sound, on the real map only (without it there is none: null)
+    pickNaval(mapReady) { return mapReady && this.arena('sound') ? 'sound' : null; },
 
     // Where a vehicle of `kind` starts for `team` (0: the north pad / the runway's west end, 1: the other) as the
     // team's `slot`-th player (0, 1, 2, ...): Flight.start's opts.place. Tanks, cars and anything else that drives
@@ -77,6 +92,11 @@ const GroundMode = (() => {
       if (!A || !A.pads || A.pads.length < 2) return null;
       const t = team === 1 ? 1 : 0, f = A.pads[t];
       const k = fin(+slot) && +slot > 0 ? Math.floor(Math.min(+slot, 1e6)) : 0;
+      if (A.sea && kind !== 'plane') { // [WP11] a sea arena: ships abreast across the pad, a second row astern past six (then again); helicopters and drones in the air over the start
+        if (kind === 'heli' || kind === 'drone') { const o = at(f, 0, abreast(k % 8) * SEA.heli); o.air = { alt: SEA.alt, speed: 0 }; return o; }
+        const n = k % (2 * SEA.row);
+        return at(f, -Math.floor(n / SEA.row) * SEA.astern, abreast(n % SEA.row) * SEA.abreast);
+      }
       if (kind === 'plane') {
         const S = A.air && A.air[t], base = S || at(f, -AIR.back, 0);
         const o = at(base, 0, abreast(k % AIR.n) * AIR.step);
@@ -104,6 +124,15 @@ const GroundMode = (() => {
       let tier = tiers[0];
       for (const m of tiers) if (+budget >= m) tier = m;
       return [...GROUND_STOCK[tier], GROUND_STOCK.fallback];
+    },
+    // [WP11] The stock ships to fall back to in a Naval Battle with this much money, best first, ending with the fallback
+    // (NAVAL_STOCK's, beside GROUND_STOCK)
+    navalStock(budget) {
+      const T = NAVAL_STOCK;
+      const tiers = Object.keys(T).filter((k) => k !== 'fallback').map(Number).sort((a, b) => a - b);
+      let tier = tiers[0];
+      for (const m of tiers) if (+budget >= m) tier = m;
+      return [...T[tier], T.fallback];
     },
 
     // The objective at the start of a battle on `arena` (an id, or an EARTH.arenas entry; an unknown one: the Runway,
@@ -139,7 +168,7 @@ const GroundMode = (() => {
       dt = +dt;
       if (!(dt > 0)) return ev; // (NaN, 0, negative)
       if (dt > 1) dt = 1;
-      const list = Array.isArray(units) ? units : [], GK = groundKinds();
+      const list = Array.isArray(units) ? units : [], A = this.arena(obj.arena), GK = A && Array.isArray(A.kinds) ? arenaKinds(A) : groundKinds(); // [WP11] (the Sound: ships)
       const ok = list.map((u) => capturer(u, GK));
       for (const zn of obj.zones) {
         const n = [0, 0], tr = [false, false], by = [[], []];
@@ -214,7 +243,8 @@ const GroundMode = (() => {
     // Is (e, z) inside the zone (within r of its centre, across the ground)?
     inZone,
     // The objective that is live: a room's (MP.state.obj) or the Practice Battle's, else null (the HUD reads it here).
-    obj() { return (typeof MP !== 'undefined' && MP.live && MP.state.obj) || (typeof GroundAI !== 'undefined' && GroundAI.battle && GroundAI.battle.obj) || null; },
+    obj() { return (typeof MP !== 'undefined' && MP.live && MP.state.obj) || (typeof GroundAI !== 'undefined' && GroundAI.battle && GroundAI.battle.obj) || (typeof Ship !== 'undefined' && Ship.battle && Ship.battle.obj) || null; }, // ([WP11] the Naval Practice battle's: Ship.battle)
   };
   function hasOwnArena(id) { return Object.prototype.hasOwnProperty.call(EARTH.arenas, id); }
+  function arenaKinds(A) { let K = kindsOf.get(A); if (!K) kindsOf.set(A, (K = new Set(A.kinds))); return K; }
 })();

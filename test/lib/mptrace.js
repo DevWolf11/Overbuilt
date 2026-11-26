@@ -19,7 +19,13 @@ module.exports = async function mptrace(G) {
     var emit = (m) => { for (const fn of __handlers.get(m.t) || []) fn(m); };
     var MPUI = new Proxy({}, { get: (o, k) => (k in o ? o[k] : () => {}) });
     var App = { scene: 'mp', afterEarth: (fn) => fn(), showScene(s) { App.scene = s; }, showMP() { App.scene = 'mp'; }, toBuild() { App.scene = 'build'; }, toHome() { App.scene = 'home'; } };
-    var Career = { data: { mode: 'career', funds: 123, tier: 2, done: {}, flights: 3 }, save() {} };
+    // the builder's money: a battle's Budget (util.js), or, in a checkout from before career mode was removed, the career
+    // a room borrowed (this stand-in, 123 of the player's own outside a room). Recorded as the old trace had it, [mode,
+    // funds]: in a room ['career', budget] or ['sandbox', 0] (no budget); outside one, none (the stand-in's ['career', 123],
+    // so the baseline is unchanged; a budget left behind after a room would show here)
+    var __old = typeof Budget === 'undefined', __money = () => (__old ? [Career.data.mode, Career.data.funds]
+      : MP.borrowed ? (Budget.on ? ['career', Budget.funds] : ['sandbox', 0]) : Budget.on ? ['left over', Budget.funds] : ['career', 123]);
+    if (__old) var Career = { data: { mode: 'career', funds: 123, tier: 2, done: {}, flights: 3 }, save() {} };
     UI.closeModal = () => {}; UI.modal = (o) => { (UI.modals = UI.modals || []).push(o.title); };
     Object.assign(Flight, { running: false, mp: null, vessels: [], time: 0, destroyed: false,
       start(design, opts) { __flights.push({ design: { name: design.name, kind: design.kind, n: design.parts.length }, opts: JSON.parse(JSON.stringify(opts, (k, v) => (k === 'carrier' ? v && v.name : v))) }); Flight.running = true; Flight.mp = opts.mp; Flight.destroyed = false; },
@@ -37,7 +43,7 @@ module.exports = async function mptrace(G) {
     trace[String(++n).padStart(2, '0') + ' ' + name] = R(`(() => {
       const s = MP.state, o = { state: s ? JSON.parse(JSON.stringify(s)) : null, out: (Net.out || []).map((x) => JSON.stringify(x)), toasts: UI.toasts || [], modals: UI.modals || [],
         flights: __flights.slice(), timers: __timers.map((t) => t[0]), builderMp: Builder.mp ? JSON.parse(JSON.stringify(Builder.mp)) : null, kind: Builder.kind,
-        spawnId: MP.spawnId, myDesign: MP.myDesign ? [MP.myDesign.name, MP.myDesign.kind, MP.myDesign.parts.length] : null, career: [Career.data.mode, Career.data.funds] };
+        spawnId: MP.spawnId, myDesign: MP.myDesign ? [MP.myDesign.name, MP.myDesign.kind, MP.myDesign.parts.length] : null, career: __money() };
       Net.out = []; UI.toasts = []; UI.modals = []; __flights.length = 0;
       return o; })()`);
     if (err) trace[String(n).padStart(2, '0') + ' ' + name].err = err;

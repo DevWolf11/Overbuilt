@@ -1,0 +1,866 @@
+// A ship at sea (the ships update, WP3: spec §4.6 the helm's inputs, §4.11 launch, §12.1-12.4 the HUD, keys and touch):
+//  - the Cyclon Patrol Boat launched from the hangar (App.launch) starts at the bay: named, kind ship, bow out to sea
+//    (west), the heading hold on, the telegraph at Stop, Ship.launch asked to float her (ship.js core: a stub until it lands);
+//  - the HUD: the ground HUD with body.ship over it, the helm panel under the flight data (the telegraph's rungs and
+//    order, HOLD, the rudder bar), speed in knots, the throttle box as the telegraph lever (FLANK, STOP);
+//  - a phone in portrait (360×640, 390×844): a tap on the lever rings that detent (Half ahead), FLANK and STOP ring theirs,
+//    a drag down rings astern; the stick is the rudder (v.ctl.h, and the helm's sh.rud once the core turns it); nothing
+//    on the HUD overlaps; the hint and the help speak of the lever;
+//  - a desktop (1280×720): W rings a step ahead, held keeps ringing, S astern, Z flank, X stop; D the rudder; 5 hand
+//    steering and back, 6 the CIWS, 7 damage control's priority, H the bridge view (render3d's first-person path) and back;
+//    the key hints, the help and the manual list the ship's keys; never a rocket's autopilot on 1-6;
+//  - every sea spot (Spawns: off the slipway, the carriers, Shetland harbour, Caithness) starts her there, along its yaw;
+//    Settings → Sea sets the swell (Ship.sea); the death words (Sunk, Capsized…) and knots on the end screen.
+// No console errors (App.frame swallows them). Times on Flight.time (headless Chromium runs the sim at about 0.08× real
+// time). SHOTS=<dir> saves screenshots there (ship-*.png; default test/.cache/shots).
+//   node test/browser/ship-flight.mjs
+import fs from 'node:fs';
+import path from 'node:path';
+import { ROOT, launch, serve, watch, openGame, checks } from '../lib/browser.mjs';
+const SHOTS = process.env.SHOTS || path.join(ROOT, 'test', '.cache', 'shots');
+fs.mkdirSync(SHOTS, { recursive: true });
+const shot = async (page, name) => page.screenshot({ path: path.join(SHOTS, `ship-${name}.png`) });
+const srv = await serve(), b = await launch(), errs = [];
+const ok = checks('ship flight: launch at the bay, the helm (telegraph and rudder) by keys and touch, the helm panel, a sinking, the sea spots, gunnery and missiles, the HUD and feel');
+
+const instrument = () => {
+  window.__errs = [];
+  addEventListener('error', (e) => window.__errs.push('onerror ' + e.message));
+  for (const [o, k, n] of [[Flight, 'update', 'Flight.update'], [Render3D, 'renderFlight', 'Render3D.renderFlight'], [GHUD, 'draw', 'GHUD.draw'], [Ship, 'hud', 'Ship.hud']]) {
+    const f = o[k]; o[k] = function (...a) { try { return f.apply(this, a); } catch (e) { window.__errs.push(`${n}: ${e && e.stack}`); throw e; } };
+  }
+  window.__launch = []; window.__over = []; const L = Ship.launch, O = Ship.overWater;
+  Ship.launch = function (v, P) { window.__launch.push(P ? { e: P.e, z: P.z } : null); return L.apply(this, arguments); };
+  Ship.overWater = function (v) { const r = O.apply(this, arguments); window.__over.push(!!r); return r; };
+};
+async function open(vp, tag, settings = {}) {
+  const ctx = await b.newContext({ viewport: { width: vp[0], height: vp[1] }, hasTouch: vp[2], isMobile: vp[2] }), page = await ctx.newPage();
+  watch(page, errs, tag);
+  await openGame(page, srv.url, { hints: true, ...settings });
+  await page.evaluate(instrument);
+  return { ctx, page };
+}
+const pageErrors = async (page, tag) => { const e = await page.evaluate(() => window.__errs.splice(0)); for (const x of e) errs.push(tag + x); };
+const frames = (page, n = 2) => page.evaluate((n) => new Promise((done) => { let i = 0; const f = () => (++i >= n ? done() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
+const until = (page, t) => page.waitForFunction((t) => Flight.time > t, t, { timeout: 180000 });
+// the Cyclon from the hangar, launched as a player would (App.launch: Spawns.solo, the bay unless a spot was chosen)
+async function sail(page, spot) {
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(async (spot) => {
+    await Render3D.load();
+    App.toBuild(); Builder.loadTemplate('cyclon'); store.set('rss.flight', null);
+    // [WP5] the finished Cyclon carries guns (a turret, two MGs): with them she takes the armed HUD (the aim view, its
+    // keys); the helm's checks here are the unarmed ship's, so her guns come off first (the armed ship: WP9's, WP12's)
+    Builder.parts = Builder.parts.filter((p) => !(p.def.weapon || p.def.ring || p.def.shape === 'tturret')); Builder.changed();
+    if (spot) Spawns.choose('ship', spot);
+    App.launch();
+  }, spot || null);
+  await page.waitForFunction(() => Flight.running && Flight.active && Flight.active.kind === 'ship' && Flight.time > 0.6, null, { timeout: 180000 });
+  await page.waitForTimeout(1200); // (the ground HUD's places: looked up once a second)
+  await frames(page, 2);
+}
+// where she is and which way her bow points: metres east of the pad and across the track (z), and the bow's share east
+const where = (page) => page.evaluate(() => {
+  const v = Flight.active, r = Math.hypot(v.x, v.y, v.z), ux = v.x / r, uy = v.y / r, el = Math.hypot(ux, uy), f = v.axis(1, 0, 0);
+  const east = -wrapAngle(Math.atan2(v.y, v.x) - EARTH.padAngle) * EARTH.radius, z = Math.asin(Math.max(-1, Math.min(1, v.z / r))) * EARTH.radius;
+  const fe = f.x * (uy / el) + f.y * (-ux / el); // (the bow's share of game east)
+  return { east, z, fe, name: v.name, kind: v.kind, sas: v.sas, tel: v.sh && v.sh.tel, hydro: v.hydro, launch: window.__launch.slice(), over: window.__over.slice() };
+});
+const helm = (page) => page.evaluate(() => {
+  const v = Flight.active, sh = v.sh, q = (s) => document.querySelector(s), vis = (s) => { const e = q(s); if (!e) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).display !== 'none'; };
+  const H = q('#ship-helm');
+  return { t: Flight.time, rec: Flight.canRecover(), recBtn: !q('#btn-recover').hidden, kn: v.speed() * SHIP.KN, hdg: Ship.heading(v, sh) * 57.29578, hold: sh.hold, afloat: !!v.afloat, tel: sh.tel, rud: sh.rud, ctlH: v.ctl.h, sas: v.sas, ciws: sh.ciwsOn, dc: sh.dcPri, bridge: !!Flight.bridge,
+    ship: document.body.classList.contains('ship'), ground: document.body.classList.contains('ground'), lever: vis('#flight-ui .throttle-box'),
+    helm: vis('#ship-helm'), inTel: !!H && H.parentNode === q('#flight-ui .telemetry'), order: H && H.querySelector('.sh-order').textContent, mode: H && H.querySelector('.sh-mode').textContent,
+    lit: H ? [...H.querySelectorAll('.sh-rungs i')].findIndex((i) => i.classList.contains('on')) : -1, ang: H && H.querySelector('.sh-ang').textContent,
+    speed: q('#t-speed').textContent, label: q('#throttle-label').textContent, max: q('#btn-tmax').textContent, cut: q('#btn-tcut').textContent, hint: q('#hint').hidden ? '' : q('#hint-text').textContent };
+});
+
+// ---- where everything is (controls.mjs's rule): every control and panel on the screen and clear of the others
+const layout = () => {
+  const rect = (q) => { const e = typeof q === 'string' ? document.querySelector(q) : q; if (!e || e.hidden) return null; const r = e.getBoundingClientRect(), cs = getComputedStyle(e); return r.width && r.height && cs.display !== 'none' && cs.visibility !== 'hidden' ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
+  const P = GHUD._S.P || {};
+  const items = { stick: rect('#joy'), brake: rect('#btn-brake'), fire: rect('#btn-fire'), cm: rect('#btn-cm'), chip: rect('#btn-weapon'), throttle: rect('#flight-ui .throttle-box'), stage: rect('#btn-stage'),
+    telemetry: rect('#flight-ui .telemetry'), topRight: rect('#flight-ui .flight-top-right'), warp: rect('#warp'), keys: rect('#key-hints'), hint: rect('#hint'), map: rect('#gmap'),
+    diagram: P.diag ? { l: P.diag.x, t: P.diag.y, r: P.diag.x + P.diag.w, b: P.diag.y + P.diag.h } : null };
+  const helm = rect('#ship-helm'), tel = items.telemetry;
+  return { W: innerWidth, H: innerHeight, items, z: Controls.z, helmIn: !!helm && !!tel && helm.l >= tel.l - 0.5 && helm.r <= tel.r + 0.5 && helm.b <= tel.b + 0.5 && helm.t >= tel.t - 0.5 };
+};
+const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
+function judge(tag, L, need = []) {
+  const clash = [], off = [], E = Object.entries(L.items).filter(([, a]) => a), missing = need.filter((k) => !L.items[k]);
+  for (let i = 0; i < E.length; i++) {
+    const [k, a] = E[i];
+    if (a.l < -0.5 || a.t < -0.5 || a.r > L.W + 0.5 || a.b > L.H + 0.5) off.push(k);
+    for (let j = i + 1; j < E.length; j++) if (meets(a, E[j][1])) clash.push(`${k}/${E[j][0]}`);
+  }
+  ok(`${tag}: every control and panel on the screen and clear of the others, the helm panel inside the flight data`, !clash.length && !off.length && !missing.length && L.helmIn,
+    JSON.stringify({ z: L.z, clash, off, missing, helmIn: L.helmIn }));
+}
+// fingers (CDP: every touch event lists the points still down)
+function fingers(cdp) {
+  const pts = new Map(), send = (type) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: [...pts.values()] });
+  return {
+    down: async (id, x, y) => { pts.set(id, { x, y, id }); await send('touchStart'); },
+    move: async (id, x, y) => { pts.set(id, { x, y, id }); await send('touchMove'); },
+    up: async (id) => { pts.delete(id); await send('touchEnd'); },
+  };
+}
+const box = (page, q) => page.evaluate((q) => { const r = document.querySelector(q).getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height, x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 }; }, q);
+
+// ================================================================ a phone in portrait
+for (const vp of [[390, 844, true], [360, 640, true]]) {
+  const tag = `${vp[0]}×${vp[1]} `, { ctx, page } = await open(vp, tag), cdp = await ctx.newCDPSession(page), T = fingers(cdp);
+  await sail(page);
+  const w = await where(page);
+  if (vp[0] === 390) {
+    ok('launched from the hangar: the Cyclon Patrol Boat, a ship, at the bay (2.3 km west of the pad, on the track), her bow out to sea (west)',
+      w.name === 'Cyclon Patrol Boat' && w.kind === 'ship' && Math.abs(w.east + 2300) < 40 && Math.abs(w.z) < 40 && w.fe < -0.95, w);
+    ok(`she starts on the heading hold, the telegraph at Stop, floating (hydro); Flight.start asked ship.js whether she is over water (once) and${w.over[0] ? '' : ', the core not in yet (overWater: no),'} set her afloat at her marks there when it said so (Ship.launch, at the bay's own site)`,
+      w.sas === 'hold' && w.tel === 0 && w.hydro && w.over.length === 1 && w.launch.length === (w.over[0] ? 1 : 0) && (!w.launch.length || w.launch[0] === null), w);
+  }
+  let h = await helm(page);
+  ok(`${tag}the ground HUD with body.ship: the helm panel in the flight data (Stop lit, HOLD), speed in knots, the throttle box her telegraph (Flank, Stop)`,
+    h.ship && h.ground && h.helm && h.inTel && h.order === 'Stop' && h.lit === 3 && /^HOLD/.test(h.mode) && / kn( ▲| ▼)?$/.test(h.speed) && h.lever && h.max === 'Flank' && h.cut === 'Stop' && h.label === 'Stop', h);
+  if (vp[0] === 390) ok('the first hint: the lever is her engine telegraph, the stick her rudder', /lever on the left is her engine telegraph/.test(h.hint), h.hint);
+  judge(`${tag}a ship (the Cyclon)`, await page.evaluate(layout), ['stick', 'throttle', 'telemetry', 'map']);
+  await shot(page, `helm-${vp[0]}x${vp[1]}`);
+  // the lever: a tap at Half ahead's detent (5/7 up), FLANK, STOP, a drag down to Half astern
+  const tr = await box(page, '#throttle-track');
+  await page.touchscreen.tap(tr.x, tr.t + tr.h * (1 - 5 / 7)); await frames(page, 2);
+  const t1 = await helm(page);
+  await page.touchscreen.tap((await box(page, '#btn-tmax')).x, (await box(page, '#btn-tmax')).y); await frames(page, 2);
+  const t2 = await helm(page);
+  await shot(page, `flank-${vp[0]}x${vp[1]}`);
+  await page.touchscreen.tap((await box(page, '#btn-tcut')).x, (await box(page, '#btn-tcut')).y); await frames(page, 2);
+  const t3 = await helm(page);
+  await T.down(5, tr.x, tr.t + tr.h * (1 - 3 / 7)); for (let i = 1; i <= 4; i++) await T.move(5, tr.x, tr.t + tr.h * (1 - 3 / 7) + (i / 4) * tr.h * (2 / 7)); await T.up(5); await frames(page, 2);
+  const t4 = await helm(page);
+  ok(`${tag}the lever: a tap at a detent rings it (Half ahead), FLANK rings Flank, STOP Stop, a drag down rings astern (Half astern); the panel and the lever's label follow`,
+    t1.tel === 2 && t1.order === 'Half ahead' && t1.lit === 5 && t1.label === 'Half\nahead' && t2.tel === 4 && t2.order === 'Flank' && t3.tel === 0 && t4.tel === -2 && t4.order === 'Half astern' && t4.lit === 1,
+    { t1: [t1.tel, t1.order, t1.lit, t1.label], t2: [t2.tel, t2.order], t3: t3.tel, t4: [t4.tel, t4.order, t4.lit] });
+  await page.touchscreen.tap((await box(page, '#btn-tcut')).x, (await box(page, '#btn-tcut')).y);
+  // the stick: the rudder (sideways), its forward throw nothing (the lever is the telegraph)
+  const j = await box(page, '#joy');
+  await T.down(1, j.x, j.y); await T.move(1, j.x + 20, j.y); await T.move(1, j.x + 60, j.y); await frames(page, 3);
+  const s1 = await helm(page), t0 = s1.t;
+  await T.move(1, j.x + 40, j.y - 40); await frames(page, 3);
+  const s1b = await page.evaluate(() => ({ tel: Flight.active.sh.tel, v: Flight.active.ctl.v, h: Flight.active.ctl.h }));
+  await until(page, t0 + 1.2);
+  const s2 = await helm(page);
+  await T.up(1); await frames(page, 3);
+  const s3 = await helm(page);
+  const core = await page.evaluate(() => !/^function pre\(v, dt, sim\) \{\}$/.test(Ship.pre.toString().replace(/\s+/g, ' ').trim())); // (ship.js core's helm in: the rudder follows)
+  ok(`${tag}the stick is her rudder: sideways puts it to starboard (ctl.h ${s1.ctlH.toFixed(2)}), up does nothing to the telegraph; let go, centred${core ? '; the helm turned it to starboard' : ' (the hydro core\'s helm not in yet: sh.rud stays)'}`,
+    s1.ctlH > 0.99 && s1b.tel === 0 && s1b.v === 0 && s1b.h > 0.5 && s3.ctlH === 0 && (!core || s2.rud > 0), { s1: [s1.ctlH, s1.tel, s1.rud], s1b, s2: s2.rud, s3: s3.ctlH, core });
+  // under way by touch (the hydro core's helm): FLANK, and she gathers way; the stick to starboard, and she turns to starboard
+  if (core && vp[0] === 390) {
+    await page.touchscreen.tap((await box(page, '#btn-tmax')).x, (await box(page, '#btn-tmax')).y);
+    const u0 = await helm(page); await until(page, u0.t + 4); const u1 = await helm(page);
+    await T.down(2, j.x, j.y); await T.move(2, j.x + 30, j.y); await T.move(2, j.x + 60, j.y);
+    await until(page, u1.t + 4); const u2 = await helm(page);
+    await T.up(2); await frames(page, 3);
+    await until(page, u2.t + 2); const u3 = await helm(page);
+    const turn = ((u2.hdg - u1.hdg + 540) % 360) - 180;
+    ok(`${tag}under way by touch: afloat, FLANK and in 4 s she makes ${u1.kn.toFixed(1)} kn (the panel and the flight data in knots); the stick to starboard turns her to starboard (${turn.toFixed(1)}° in 4 s); let go, she holds a heading (${u3.mode})`,
+      u0.afloat && u1.tel === 4 && u1.kn > 4 && / kn/.test(u1.speed) && turn > 3 && u2.rud > 10 && /^HOLD \d{3}°$/.test(u3.mode) && Number.isFinite(u3.hold), { u0: [u0.afloat, u0.kn], u1: [u1.tel, u1.kn, u1.speed, u1.hdg], u2: [u2.rud, u2.hdg], u3: [u3.mode, u3.hold] });
+    await shot(page, `underway-${vp[0]}x${vp[1]}`);
+    await page.touchscreen.tap((await box(page, '#btn-tcut')).x, (await box(page, '#btn-tcut')).y);
+  }
+  // the help on touch: the touch line first (the lever and the stick), the keys folded away
+  const hp = await page.evaluate(() => { const d = document.createElement('div'); d.innerHTML = Flight.controlsHelp(); return { first: d.querySelector('.help-grid').textContent, folded: !!d.querySelector('details.help-keys') }; });
+  ok(`${tag}the menu's help on a phone: the lever and the stick first, the keys folded away`, /telegraph/.test(hp.first) && /rudder/.test(hp.first) && hp.folded, hp);
+  // UI size 150% and 60%: still clear
+  for (const u of [1.5, 0.6]) {
+    await page.evaluate((u) => { Settings.set('uiSize', u); Controls.relayout(); }, u);
+    await page.waitForTimeout(1300); await frames(page, 2);
+    judge(`${tag}a ship at UI size ${u * 100}% (scale ${await page.evaluate(() => Controls.z)})`, await page.evaluate(layout), ['stick', 'throttle', 'telemetry']);
+    if (u === 1.5 && vp[0] === 360) await shot(page, `helm-150-${vp[0]}x${vp[1]}`);
+  }
+  await page.evaluate(() => { Settings.set('uiSize', 1); Controls.relayout(); });
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ a desktop: the keys
+{
+  const tag = '1280×720 ', { ctx, page } = await open([1280, 720, false], tag);
+  await sail(page);
+  await page.waitForTimeout(400);
+  const press = async (k) => { await page.keyboard.press(k); await frames(page, 2); return helm(page); };
+  const a = await press('KeyW'), b2 = await press('KeyW'), c = await press('KeyS');
+  await page.keyboard.down('KeyW');
+  await page.waitForFunction(() => Flight.active.sh.tel >= 3, null, { timeout: 60000 }).catch(() => {});
+  await page.keyboard.up('KeyW'); await frames(page, 2);
+  const d = await helm(page);
+  const z = await press('KeyZ'), x = await press('KeyX'), sa = await press('ShiftLeft'), sc = await press('ControlLeft'), ar = await press('ArrowDown'), x2 = await press('KeyX');
+  ok('W rings a step ahead (Slow, Half), S a step back, W held keeps ringing (Full), Z Flank, X Stop, Shift and Ctrl (the throttle keys) a step either way, ↓ astern; the panel says so',
+    a.tel === 1 && b2.tel === 2 && c.tel === 1 && d.tel >= 3 && z.tel === 4 && z.order === 'Flank' && x.tel === 0 && x.order === 'Stop' && sa.tel === 1 && sc.tel === 0 && ar.tel === -1 && ar.order === 'Slow astern' && x2.tel === 0,
+    { a: a.tel, b: b2.tel, c: c.tel, d: d.tel, z: z.tel, x: x.tel, sa: sa.tel, sc: sc.tel, ar: ar.tel });
+  await page.keyboard.down('KeyD'); await frames(page, 3);
+  const r = await helm(page);
+  await page.keyboard.up('KeyD'); await frames(page, 3);
+  const r2 = await helm(page);
+  ok('D puts the rudder to starboard (ctl.h 1), let go: centred', r.ctlH === 1 && r2.ctlH === 0, { r: r.ctlH, r2: r2.ctlH });
+  // under way with the keys (the hydro core's helm): W three times (Full ahead), she gathers way; D held turns her to
+  // starboard; let go, she holds her new heading
+  for (let i = 0; i < 3; i++) await press('KeyW');
+  const w0 = await helm(page); await until(page, w0.t + 4); const w1 = await helm(page);
+  await page.keyboard.down('KeyD'); await until(page, w1.t + 4); const w2 = await helm(page); await page.keyboard.up('KeyD');
+  await until(page, w2.t + 3); const w3 = await helm(page);
+  const wt = ((w2.hdg - w1.hdg + 540) % 360) - 180, drift = Math.abs(((w3.hdg - (w3.hold * 57.29578) + 540) % 360) - 180);
+  ok(`W, W, W: Full ahead, and in 4 s she makes ${w1.kn.toFixed(1)} kn (no Recover under way); D held turns her to starboard (${wt.toFixed(1)}° in 4 s, rudder ${w2.rud.toFixed(0)}°); let go, she holds a heading (${w3.mode}, ${drift.toFixed(1)}° off it)`,
+    w0.tel === 3 && w0.order === 'Full ahead' && w1.kn > 4 && !w1.rec && !w1.recBtn && wt > 3 && w2.rud > 10 && /^HOLD \d{3}°$/.test(w3.mode) && drift < 15, { w0: w0.tel, w1: w1.kn, w2: [w2.rud, w2.hdg], w3: [w3.mode, w3.hold, w3.hdg] });
+  await shot(page, 'underway-1280x720');
+  await press('KeyX');
+  const k5 = await press('Digit5'), k5b = await press('Digit5'), k6 = await press('Digit6'), k7 = await press('Digit7'), k7b = await press('Digit7');
+  ok('5: hand steering (HAND) and back to the heading hold; 6 the CIWS off and on; 7 damage control: flooding first, fires first; 1-6 never a rocket\'s autopilot',
+    k5.sas === 'manual' && k5.mode === 'HAND' && k5b.sas === 'hold' && /^HOLD/.test(k5b.mode) && k6.ciws === false && k7.dc === 'flood' && k7b.dc === 'fire', { k5: [k5.sas, k5.mode], k5b: [k5b.sas, k5b.mode], k6: k6.ciws, k7: k7.dc, k7b: k7b.dc });
+  // [WP12 fix] a desktop's helm panel says what the phone's lit buttons show, once the toasts have gone (the Cyclon: no CIWS)
+  const kit = await page.evaluate(() => { const e = document.querySelector('#ship-helm .sh-kit'); return { txt: [...e.children].map((c) => c.textContent).filter(Boolean).join(' · '), shown: e.getBoundingClientRect().height > 0, dc: e.querySelector('.sh-dc').className }; });
+  ok(`[WP12] a desktop's helm panel says damage control's priority ("${kit.txt}": fires first, lit) and no CIWS on a ship without one`, kit.shown && kit.txt === 'DC FIRE' && /\bset\b/.test(kit.dc), kit);
+  for (const k of ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit6', 'Digit7']) await page.keyboard.press(k);
+  await frames(page, 2);
+  const sas = await page.evaluate(() => Flight.active.sas);
+  ok('...after 1-4 (and 6, 7 again) she is still on the heading hold', sas === 'hold', sas);
+  const v1 = await press('KeyH'); await frames(page, 3);
+  const cam = await page.evaluate(() => !!Render3D.fpvCam());
+  await shot(page, 'bridge-1280x720');
+  const v2 = await press('KeyH'); await frames(page, 2);
+  const cam2 = await page.evaluate(() => !!Render3D.fpvCam());
+  ok('H: the bridge view (render3d\'s first-person path, from over her wheelhouse), H again: the chase view', v1.bridge && cam && !v2.bridge && !cam2, { v1: v1.bridge, cam, v2: v2.bridge, cam2 });
+  const hints = await page.evaluate(() => [...document.querySelectorAll('#key-hints-list > div')].map((x) => [...x.querySelectorAll('kbd')].map((k) => k.textContent).join(' ') + ' ' + x.lastElementChild.textContent));
+  const has = (re) => hints.some((t) => re.test(t));
+  ok('the key hints for a ship, from the bindings: W S the telegraph, A D the rudder, Z X flank and stop, 5 hand steering, 7 damage control, H the bridge view',
+    has(/^W S Telegraph/) && has(/^A D Rudder/) && has(/^Z X Flank, stop/) && has(/^5 Hand steer/) && has(/^7 Damage control/) && has(/^H Bridge view/) && has(/^Esc Menu/), hints);
+  const help = await page.evaluate(() => {
+    const d = document.createElement('div'); d.innerHTML = Flight.controlsHelp();
+    const rows = [...d.querySelectorAll('.help-grid > div')].map((x) => x.textContent);
+    App.showHelp(); const m = document.querySelector('#modal-card'), heads = [...m.querySelectorAll('h3.summary-h')].map((x) => x.textContent), txt = m.textContent; UI.closeModal();
+    return { rows, heads, manual: /Ships\./.test(txt) && /engine telegraph/.test(txt) };
+  });
+  const row = (re) => help.rows.some((t) => re.test(t));
+  ok('the menu\'s help lists her keys (W S / ↑ ↓ the telegraph, A D the rudder, Z X, 5, H, 6, 7) and the manual has a Ships chapter and the Ships list',
+    row(/^WS \/ ↑↓Ring the engine telegraph/) && row(/^AD \/ ←→Rudder/) && row(/^ZXFlank speed/) && row(/^5Heading hold/) && row(/^HBridge view/) && row(/^6CIWS/) && row(/^7Damage control/)
+    && help.heads.includes('Ships') && help.manual, help);
+  await shot(page, 'helm-1280x720');
+  judge('1280×720 a ship', await page.evaluate(layout), ['telemetry', 'keys', 'throttle']);
+  // the death words and the end screen's knots
+  const dw = await page.evaluate(() => { const v = Flight.active, w = []; for (const f of ['sunk', 'capsized', 'magazine', 'action', undefined]) { v.fate = f; w.push(Flight.deathLine(v)); } v.fate = undefined; const s = Flight.summaryHTML(); return { w, sailed: /Sailed/.test(s), kn: / kn</.test(s) }; });
+  ok('her loss in words (Sunk, Capsized, Lost to a magazine explosion, Out of action) and the end screen\'s distance sailed and top speed in knots',
+    dw.w.join('|') === 'Sunk|Capsized|Lost to a magazine explosion|Out of action|Destroyed' && dw.sailed && dw.kn, dw);
+  // Settings → Sea
+  const sea = await page.evaluate(() => { App.showSettings(); const s = document.querySelector('#set-sea'), opts = [...s.options].map((o) => o.value), was = s.value; s.value = 'rough'; s.dispatchEvent(new Event('change')); UI.closeModal(); const r = [opts, was, Ship.sea(), Settings.get('sea')]; Ship.setSea('moderate'); Settings.set('sea', 'moderate'); return r; });
+  ok('Settings → Sea: Calm, Moderate (the default) or Rough, kept, and the sea follows (Ship.setSea)', sea[0].join() === 'calm,moderate,rough' && sea[1] === 'moderate' && sea[2] === 'rough' && sea[3] === 'rough', sea);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ a sinking (WP8, spec §8.4-§8.9): a bomb's near miss
+// A 500 lb bomb dropped into the sea 27 m off the Cyclon's port side (S4: it goes on down and bursts under the water, the
+// near miss that springs her plates): holes all along her port side, the water in; she lists to port and settles by the
+// stern, founders and goes down; the strip says how she was lost; the console stays clean. Screenshots every 3 s of it
+// (ship-sink-*.png), then after she has gone (Render3D.skipDraw while waiting: headless Chromium runs the sim slowly).
+{
+  const tag = 'sink ', { ctx, page } = await open([1280, 720, false], tag);
+  await sail(page);
+  const state = () => page.evaluate(() => { const v = Flight.active, sh = v.sh, r = Math.hypot(v.x, v.y, v.z) - EARTH.radius, al = document.querySelector('#flight-alert');
+    const s = { t: +(Flight.time - window.__sink.t0).toFixed(1), W: Math.round(sh ? sh.comps.reduce((s, c) => s + c.W, 0) : 0), holes: sh ? sh.hulls.reduce((s, p) => s + (p.holes ? p.holes.length : 0), 0) : 0,
+      heel: +(v.heel * 57.3).toFixed(1), trim: +(v.trim * 57.3).toFixed(1), alt: +r.toFixed(1), fate: v.fate || '', sunk: v.sunk != null, wreck: !!v.wreck, dead: !!v.dead, strip: al.hidden || !al.classList.contains('lost') ? '' : al.textContent, warn: al.hidden || al.classList.contains('lost') ? '' : al.textContent, // ([WP12] the lost strip; before it, her warnings)
+      dmg: (() => { const r = document.querySelector('#row-dmg'), e = document.querySelector('#t-dmg'); return r && !r.hidden && e ? e.textContent : ''; })() };
+    if (s.strip && !window.__sink.strip) window.__sink.strip = s.strip; s.firstStrip = window.__sink.strip || ''; if (s.warn && !window.__sink.warn) window.__sink.warn = s.warn; s.firstWarn = window.__sink.warn || ''; return s; });
+  await page.evaluate(() => {
+    const v = Flight.active, me = { parts: [], name: 'Bomber', kind: 'plane', body: EARTH, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+    const c = v.toWorld(v.com.x - 4, v.com.y, (v.com.z || 0) - 27), r = Math.hypot(c.x, c.y, c.z), up = { x: c.x / r, y: c.y / r, z: c.z / r };
+    Combat.S.shots.push({ k: 'bomb', b: EARTH, x: c.x + up.x * 40, y: c.y + up.y * 40, z: c.z + up.z * 40, vx: -up.x * 50, vy: -up.y * 50, vz: -up.z * 50, dx: 0, dy: 0, dz: 0, t: 1, life: 30, dmg: 1200, blast: 30, cluster: 0, torpedo: false, owner: me });
+    window.__sink = { t0: Flight.time };
+  });
+  const seen = [];
+  for (const t of [3, 6, 9, 12, 15]) { await page.waitForFunction((t) => Flight.time - window.__sink.t0 > t || !Flight.active || Flight.active.dead, t, { timeout: 600000 }); await frames(page, 2); await shot(page, `sink-${t}s-1280x720`); seen.push(await state()); }
+  await page.evaluate(() => { Render3D.skipDraw = true; });
+  await page.waitForFunction(() => { const v = Flight.active; return !v || v.dead || v.wreck || Flight.time - window.__sink.t0 > 120; }, null, { timeout: 900000 });
+  await page.evaluate(() => { Render3D.skipDraw = false; });
+  await frames(page, 3); await shot(page, 'sink-gone-1280x720');
+  const end = await state(), first = seen[0], mid = seen[1];
+  ok(`a sinking: a near miss tears ${first.holes} holes along her port side (${first.W} m³ aboard at 3 s); she lists and settles (${seen.map((s) => `${s.t} s: heel ${s.heel}°, trim ${s.trim}°, ${s.W} m³`).join('; ')}), is lost ('${end.fate}'), and goes down (${end.dead ? 'gone' : end.wreck ? 'a wreck' : 'still sinking'} at ${end.t} s); the strip: "${end.firstStrip}"`,
+    first.holes >= 2 && first.W > 0 && mid.W > first.W && seen.some((s) => Math.abs(s.heel) > 5 || Math.abs(s.trim) > 5) && end.fate && (end.sunk || end.dead || end.wreck) && /^(Sunk|Capsized|Out of action)/.test(end.firstStrip), { seen, end });
+  ok(`...[WP12] before she was lost the alert line warned of it ("${end.firstWarn}")`, /^(Flooding|List|Fire)/.test(end.firstWarn), end.firstWarn);
+  const fated = [...seen, end].filter((s) => s.fate && s.dmg);
+  ok(`...the flight data's damage row says how she was lost (${[...new Set(fated.map((s) => s.dmg))].join(', ') || 'never shown'}), never a tank's "Knocked out"`, fated.length > 0 && fated.every((s) => /^(Sunk|Capsized|Out of action|Broken in two)$/.test(s.dmg)), fated);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ every sea spot
+{
+  const tag = 'spots ', { ctx, page } = await open([1280, 720, false], tag);
+  const spots = await page.evaluate(() => Spawns.list('ship').map((s) => ({ id: s.id, sea: s.sea || null, site: s.site || null })));
+  const out = [];
+  for (const s of spots) {
+    await sail(page, s.id);
+    const w = await where(page), want = s.sea || { e: -2300, z: 0, yaw: Math.PI }; // (the bay: EARTH.sites.bay)
+    out.push({ id: s.id, east: Math.round(w.east), z: Math.round(w.z), fe: +w.fe.toFixed(2), want: [want.e, want.z, +Math.cos(want.yaw).toFixed(2)] });
+  }
+  const bad = out.filter((o) => Math.hypot(o.east - o.want[0], o.z - o.want[1]) > 40 || Math.abs(o.fe - o.want[2]) > 0.08);
+  ok(`every ship spot (${spots.length}: the bay, off the slipway, the carriers, Shetland harbour and Caithness) starts her there, her bow along its way`, spots.length === 7 && !bad.length, bad.length ? bad : out.map((o) => `${o.id} ${o.east},${o.z}`));
+  await shot(page, 'spot-carrierS-1280x720');
+  // and after her, an old craft's HUD: no ship layer, no helm panel, the throttle box a throttle again (Max, Cut, a percentage)
+  await page.evaluate(async () => { App.toBuild(); Builder.loadTemplate('fs16'); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize()); });
+  await page.waitForFunction(() => Flight.running && Flight.active.kind === 'plane' && Flight.time > 0.3, null, { timeout: 120000 });
+  await frames(page, 3);
+  const old = await page.evaluate(() => ({ ship: document.body.classList.contains('ship'), ground: document.body.classList.contains('ground'), helm: document.querySelector('#ship-helm').hidden, btns: [...document.querySelectorAll('.g-ship')].every((e) => e.hidden && !e.getBoundingClientRect().width), // [WP12]
+    max: document.querySelector('#btn-tmax').textContent, cut: document.querySelector('#btn-tcut').textContent, label: document.querySelector('#throttle-label').textContent, bottom: document.querySelector('#throttle-fill').style.bottom, speed: document.querySelector('#t-speed').textContent }));
+  ok('a plane after her: no ship layer, the helm panel hidden, the throttle box a throttle again (Max, Cut, a percentage), speed in km/h',
+    !old.ship && !old.ground && old.helm && old.btns && old.max === 'Max' && old.cut === 'Cut' && /^\d+%$/.test(old.label) && old.bottom === '' && / km\/h$/.test(old.speed), old);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ [WP9] gunnery and missiles (spec §8.1, §8.6, §8.10)
+// The Arley from the hangar, armed, at the bay, on a phone in portrait (390×844) and a desktop (1280×720):
+//  - gunnery: her 127 mm through the gunner's sight (×6) at an Olivar 5 km out, FIRE held: rounds away as it loads, the
+//    first laid on the sea beside her, past the crosshair's 1° snap to a ship (their columns of water in the sight:
+//    ship-gun-splash-*),
+//    then on her: hits (her hull holed);
+//  - missiles: her anti-ship missile (the crosshair on a Cyclon 8 km out, FIRE): out of its canister (ship-asm-*), into
+//    the Cyclon; then an Osca's anti-ship missiles at her from 6 km, one at a time: her close-in gun firing (its tracers:
+//    ship-ciws-*) and one shot down.
+// Waits on Flight.time with the drawing off (Render3D.skipDraw: headless Chromium is slow), on again for each picture.
+async function sailArmed(page, key) {
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(async (key) => { await Render3D.load(); App.toBuild(); Builder.loadTemplate(key); store.set('rss.flight', null); App.launch(); }, key);
+  await page.waitForFunction((key) => Flight.running && Flight.active && Flight.active.name === TEMPLATES[key].name && Flight.time > 0.6, key, { timeout: 180000 });
+  await page.waitForTimeout(1200); await frames(page, 2);
+  await page.evaluate(() => {
+    // a ship of the stock templates afloat e m east of the pad and z across, her bow along yaw; and the aim (in the sight
+    // or out) put on a vessel's middle (ground-hud.mjs's way: the camera's ray, a few frames to settle)
+    window.__mk = (key, e, z, yaw) => { const T = TEMPLATES[key], ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), t = new Vessel(ps, adj, EARTH);
+      t.kind = T.kind; t.name = T.name; t.stages = computeStages(ps, adj, findControlPart(ps).id); t.rebuildGroups(); t.placeOnSurface(EARTH, siteAngle(EARTH, e), 0, z, yaw); Ship.launch(t, { e, z, yaw }); Flight.vessels.push(t); return t; };
+    window.__simWait = async (dt, draw) => { Render3D.skipDraw = !draw; const f = () => new Promise((r) => requestAnimationFrame(r)), t0 = Flight.time, w0 = performance.now(); while (Flight.time < t0 + dt && performance.now() - w0 < 600000) await f(); Render3D.skipDraw = false; };
+    window.__aimAt = async (t, side = 0) => { const v = Flight.active, RAY = { o: v3(), d: v3() };
+      for (let i = 0; i < 4; i++) {
+        const r = Math.hypot(v.x, v.y, v.z), ux = v.x / r, uy = v.y / r, uz = v.z / r, el = Math.hypot(ux, uy), ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux;
+        const O = Render3D.aimRay(RAY).o, tr = Math.hypot(t.x, t.y, t.z), lx = t.x - v.x, ly = t.y - v.y, lz = t.z - v.z, sx = uy * lz - uz * ly, sy = uz * lx - ux * lz, sz = ux * ly - uy * lx, sl = Math.hypot(sx, sy, sz) || 1, up = side ? -0.5 : 3; // (side: on the sea that far beside her, past the crosshair's 1° snap to a ship)
+        const px = t.x + (sx / sl) * side, py = t.y + (sy / sl) * side, pz = t.z + (sz / sl) * side, dx = px + (t.x / tr) * up - O.x, dy = py + (t.y / tr) * up - O.y, dz = pz + (t.z / tr) * up - O.z, d = Math.hypot(dx, dy, dz);
+        Flight.aimYaw = Math.atan2(-(dx * nx + dy * ny + dz * nz) / d, (dx * ex + dy * ey) / d); Flight.aimPitch = Math.asin((dx * ux + dy * uy + dz * uz) / d);
+        await window.__simWait(0.1, true);
+      }
+      GHUD._S.aimAt = -1e9; GHUD.aimUpdate(Flight); return Flight.aim && Flight.aim.v === t; };
+    window.__sel = (key) => { const v = Flight.active, i = Combat.systems(v).findIndex((s) => s.key === key); if (i >= 0) v.wsel = i; return i; };
+    window.__cols = []; const C = Ship.column; Ship.column = function (b, P, k) { window.__cols.push({ t: Flight.time, k }); return C.apply(this, arguments); };
+  });
+}
+const holes = (page, w) => page.evaluate((w) => { const v = window[w]; return v.parts.reduce((s, p) => s + (p.holes ? p.holes.reduce((q, h) => q + h.a, 0) : 0), 0) + (v.fate ? 1000 : 0); }, w);
+for (const vp of [[390, 844, true], [1280, 720, false]]) {
+  const tag = `${vp[0]}×${vp[1]} `, sz = `${vp[0]}x${vp[1]}`;
+  // ---- gunnery
+  {
+    const { ctx, page } = await open(vp, tag + 'gun ');
+    await sailArmed(page, 'arley');
+    const set = await page.evaluate(async () => { const v = Flight.active; window.__tg = window.__mk('olivar', -7300, 0, Math.PI / 2); await window.__simWait(1); const sel = window.__sel('nGun127');
+      Flight.setSight(true, 6); const on = await window.__aimAt(window.__tg); await window.__aimAt(window.__tg, 150); const gun = v.parts.find((p) => p.type === 'nGun127');
+      return { sel, on, ammo: gun.ammo, d: Math.round(Math.hypot(window.__tg.x - v.x, window.__tg.y - v.y, window.__tg.z - v.z)), sight: !!Flight.sight }; });
+    // FIRE held (the fire button: Flight.touchFire); the first round's column (its time of flight about 8 s): the picture half a second after it rises
+    await page.evaluate(async () => { Flight.touchFire = true; const f = () => new Promise((r) => requestAnimationFrame(r)), w0 = performance.now(); Render3D.skipDraw = true;
+      while (!window.__cols.length && Flight.time < 90 && performance.now() - w0 < 900000) await f();
+      Render3D.skipDraw = false; await window.__simWait(0.5, true); });
+    await shot(page, `gun-splash-${sz}`);
+    await page.evaluate(async () => { await window.__aimAt(window.__tg); await window.__simWait(14); Flight.touchFire = false; await window.__simWait(9); }); // (then on her)
+    const got = await page.evaluate(() => { const v = Flight.active, gun = v.parts.find((p) => p.type === 'nGun127'), t = window.__tg; return { ammo: gun.ammo, cols: window.__cols.length, big: window.__cols.filter((c) => c.k > 3).length, holes: +t.parts.reduce((s, p) => s + (p.holes ? p.holes.reduce((q, h) => q + h.a, 0) : 0), 0).toFixed(2), hp: Math.round(t.parts.reduce((s, p) => s + (p.hp == null ? Combat.maxHp(p.def) : Math.max(0, p.hp)), 0)), hp0: Math.round(t.parts.reduce((s, p) => s + Combat.maxHp(p.def), 0)) }; });
+    await frames(page, 3); await shot(page, `gun-after-${sz}`);
+    ok(`${tag}gunnery: the Arley's 127 mm through the gunner's sight at an Olivar ${set.d} m out: ${set.ammo - got.ammo} rounds away with FIRE held, ${got.big} columns of water, her hull holed (${got.holes} m², ${got.hp0 - got.hp} hp)`,
+      set.sel >= 0 && set.on && set.sight && set.ammo - got.ammo >= 3 && got.big >= 1 && got.holes > 0, { set, got });
+    await pageErrors(page, tag + 'gun ');
+    await ctx.close();
+  }
+  // ---- missiles
+  {
+    const { ctx, page } = await open(vp, tag + 'asm ');
+    await sailArmed(page, 'arley');
+    const set = await page.evaluate(async () => { const v = Flight.active; window.__tg = window.__mk('cyclon', -7800, 400, Math.PI / 2); /* (5.5 km: inside her radar's horizon on a patrol boat, so the lock takes her: no magic radar) */ await window.__simWait(1); const sel = window.__sel('asm4'); const on = await window.__aimAt(window.__tg); await window.__simWait(0.3, true);
+      Flight.fireTap = true; await window.__simWait(0.2, true); const m = Combat.S.shots.find((s) => s.asm && s.owner === v); window.__m = m; return { sel, on, fired: !!m, at: m && m.target === window.__tg, d: Math.round(Math.hypot(window.__tg.x - v.x, window.__tg.y - v.y, window.__tg.z - v.z)) }; });
+    await page.evaluate(async () => { await window.__simWait(1.2, true); });
+    await shot(page, `asm-launch-${sz}`);
+    await page.evaluate(async () => { const m = window.__m; const f = () => new Promise((r) => requestAnimationFrame(r)); Render3D.skipDraw = true; const w0 = performance.now(); while (Combat.S.shots.includes(m) && performance.now() - w0 < 900000) await f(); Render3D.skipDraw = false; await window.__simWait(2); });
+    const hit = await page.evaluate(() => { const t = window.__tg; return { holes: +t.parts.reduce((s, p) => s + (p.holes ? p.holes.reduce((q, h) => q + h.a, 0) : 0), 0).toFixed(2), fate: t.fate || '', spent: !!window.__m.dead }; });
+    ok(`${tag}missiles: the Arley's anti-ship missile at a Cyclon ${set.d} m out (the crosshair on her: the ship it flies at) goes and hits her (${hit.holes} m² of holes${hit.fate ? ', ' + hit.fate : ''})`, set.sel >= 0 && set.fired && set.at && hit.spent && (hit.holes > 0 || !!hit.fate), { set, hit });
+    // an Osca's at her from 6 km, one at a time until her close-in gun has shot one down (at most three)
+    const run = page.evaluate(async () => { const v = Flight.active, o = window.__mk('osca', -8300, 0, 0); o.ai = { sea: true }; await window.__simWait(1);
+      let best = 0, bk = -2; for (let i = 0; i < 16; i++) { const y = (i / 16) * TAU; o.placeOnSurface(EARTH, siteAngle(EARTH, -8300), 0, 0, y); const f = o.axis(1, 0, 0), dx = v.x - o.x, dy = v.y - o.y, dz = v.z - o.z, l = Math.hypot(dx, dy, dz), k = (f.x * dx + f.y * dy + f.z * dz) / l; if (k > bk) { bk = k; best = y; } }
+      o.placeOnSurface(EARTH, siteAngle(EARTH, -8300), 0, 0, best); Ship.launch(o, { e: -8300, z: 0, yaw: best });
+      const gun = v.parts.find((p) => p.type === 'ciws'), out = [];
+      for (let k = 0; k < 3; k++) {
+        const L = o.parts.find((p) => p.type === 'asm2'); L.ammo = 2; const m = Combat.launchMissile(o, L, v, Flight); let firing = null;
+        const f = () => new Promise((r) => requestAnimationFrame(r)); Render3D.skipDraw = true; const w0 = performance.now();
+        while (Combat.S.shots.includes(m) && !m.dead && performance.now() - w0 < 900000) { await f(); if (gun.gunOn && firing == null) { firing = Flight.time; Render3D.skipDraw = false; window.__ciwsAt = firing; break; } }
+        if (firing != null) { await window.__simWait(0.4, true); window.__shotNow = true; while (!window.__shotDone && performance.now() - w0 < 900000) await f(); window.__shotDone = false; window.__shotNow = false; Render3D.skipDraw = true; }
+        while (Combat.S.shots.includes(m) && !m.dead && performance.now() - w0 < 900000) await f();
+        Render3D.skipDraw = false;
+        out.push({ killed: m.killedBy === v, rounds: (gun.shots || 0) * 5, at: Math.round(Math.hypot(m.x - v.x, m.y - v.y, m.z - v.z)) });
+        if (m.killedBy === v) break;
+        await window.__simWait(2);
+      }
+      return out; });
+    // (the picture while the gun fires: taken from here as the page waits for it)
+    let took = false;
+    for (;;) {
+      const st = await Promise.race([run.then(() => 'done'), page.waitForFunction(() => window.__shotNow, null, { timeout: 0, polling: 250 }).then(() => 'shot').catch(() => 'done')]);
+      if (st === 'done') break;
+      if (!took) { await shot(page, `ciws-${sz}`); took = true; }
+      await page.evaluate(() => { window.__shotNow = false; window.__shotDone = true; });
+    }
+    const cw = await run;
+    ok(`${tag}...an Osca's anti-ship missiles at her from 6 km: her close-in gun fires (${cw.map((c) => c.rounds).join(', ')} rounds) and shoots one down (${cw.map((c) => c.killed ? 'down ' + c.at + ' m out' : 'it got through').join('; ')})`, cw.some((c) => c.killed), cw);
+    await pageErrors(page, tag + 'asm ');
+    await ctx.close();
+  }
+}
+
+// ================================================================ [WP12] the HUD and feel (spec §12)
+// The Arley from the hangar, armed, at the bay, on two phones in portrait (360×640, 390×844) and a desktop (1280×720):
+//  - the hull diagram under the helm panel, inside the flight data (a strip on a phone); her touch buttons (HOLD, DC,
+//    CIWS) over the lever, clear of everything, and what each does; none on a desktop (the key hints);
+//  - flooding (holes in two compartments, the water rising): the diagram redrawn with it (its key, at most 4 a second),
+//    the alert line "Flooding · compartment N", then, the holes patched, the fire's "Fire …";
+//  - a hostile torpedo 1.2 km off her beam, running at her: "Torpedo in the water · NNN° · 1.2 km" (on a phone "Torpedo · …"; critical) and its
+//    track dashed red in the aim view; one of her own: its run drawn solid;
+//  - a missile coming in: "Missile inbound · …" from her radars, and nothing once they are knocked out (no magic radar);
+//  - a magazine with a fire at it; a ship of theirs we doomed: SUNK in the aim view;
+//  - the holes as scorched patches on her skin (Render3D's decals): two shells' by her forward gun, the one on her
+//    forecastle on the screen from aft on every screen, the one in her side from abeam on a desktop; her aim camera
+//    framing her whole as she sets out, its zoom out to her length and in to 7 m (its first notch in seen on a phone,
+//    out past her reach the follow camera's own stand), her loss eased into a follow camera that frames her whole;
+//  - her sounds (the telegraph's bell, the engines' level by the telegraph).
+// Then the follow camera as an unarmed ship sets out (the RIB close, the Cyclon whole; on a phone in portrait the Osca and
+// the Arley whole from astern, abeam both ways and on her quarter: ship-chase-*) and the bridge view in a Rough sea
+// (the RIB on a phone, the Cyclon on a desktop): the eye never inside her, over the wave at it; and a
+// phone's sinking: the diagram filling, ABANDON SHIP. Screenshots: ship-hud-*, ship-flooding-*, ship-holes-* (ship-holes-side-*),
+// ship-torpedo-*, ship-torprun-*, ship-sunk-banner-*, ship-bridge-rough-*, ship-sink-phone-*.
+const strokes = () => { // (the canvas's strokes from now on, their colour and dash: the torpedo lines; and its words)
+  const P = CanvasRenderingContext2D.prototype, st = P.stroke, ft = P.fillText;
+  window.__strokes = []; window.__texts = [];
+  P.stroke = function (...a) { if (window.__strokes.length < 4000) window.__strokes.push(`${this.strokeStyle}|${this.getLineDash().join(',')}`); return st.apply(this, a); };
+  P.fillText = function (t, ...a) { if (window.__texts.length < 4000) window.__texts.push(String(t)); return ft.call(this, t, ...a); };
+};
+const hudOf = (page) => page.evaluate(() => {
+  const q = (s) => document.querySelector(s), al = q('#flight-alert'), hl = q('#ship-helm .sh-hl'), H = Ship._hud, v = Flight.active;
+  return { t: Flight.time, alert: al.hidden ? '' : al.textContent, crit: al.classList.contains('critical'), hl: hl ? hl.textContent : '', lost: !!q('#ship-helm.lost'), hull: !q('#ship-helm .sh-hull').hidden, key: H.HD.key,
+    W: v && v.sh ? v.sh.comps.reduce((a, c) => a + c.W, 0) : 0, sas: v && v.sas, dc: v && v.sh && v.sh.dcPri, ciws: v && v.sh && v.sh.ciwsOn,
+    btn: ['#btn-shold', '#btn-sdc', '#btn-sciws'].map((s) => { const e = q(s), r = e.getBoundingClientRect(); return r.width > 0 ? `${e.textContent}:${e.getAttribute('aria-pressed')}` : ''; }) };
+});
+// her camera as she sets out (spec §12.2: the chase framed from her size): how far it stands from her middle, which camera
+// (the aim camera of an armed ship, else the follow camera), and where her bow and stern fall on the screen (both on it:
+// framed whole; span: their distance apart over the screen's narrower side)
+const framing = (page) => page.evaluate(() => {
+  const v = Flight.active, B = v.bounds, b0 = bodyPos(v.body, Flight.time), bp = { x: b0.x, y: b0.y, z: b0.z || 0 }, C = Render3D.gfx().camAt, ym = (B.minY + B.maxY) / 2;
+  const abs = (x) => { const w = v.toWorld(x, ym, v.com.z || 0); return { x: bp.x + w.x, y: bp.y + w.y, z: bp.z + w.z }; };
+  const m = abs(v.com.x), E = [abs(B.maxX), abs(B.minX)].map((P) => Render3D.project(P.x, P.y, P.z));
+  return { d: Math.hypot(C.x - m.x, C.y - m.y, C.z - m.z), L: B.maxX - B.minX, aim: !!Flight.aimCam, far: Ship.aimFar(v), on: E.every((q) => !q.behind && q.x >= 0 && q.x <= innerWidth && q.y >= 0 && q.y <= innerHeight),
+    span: Math.hypot(E[0].x - E[1].x, E[0].y - E[1].y) / Math.min(innerWidth, innerHeight), ends: E.map((q) => [Math.round(q.x), Math.round(q.y)]) };
+});
+for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
+  const tag = `${vp[0]}×${vp[1]} `, sz = `${vp[0]}x${vp[1]}`, { ctx, page } = await open(vp, tag + 'hud ');
+  await sailArmed(page, 'arley');
+  const fr = await framing(page);
+  ok(`${tag}the destroyer's camera as she sets out: the aim camera ${fr.d.toFixed(0)} m from her middle (her reach ${fr.far.toFixed(0)} m), her ${fr.L.toFixed(0)} m framed whole (bow and stern on the screen: ${JSON.stringify(fr.ends)})`, fr.aim && fr.on && fr.d <= fr.far + 1 && fr.d > 0.5 * fr.L, fr);
+  await page.evaluate(strokes);
+  await page.evaluate(() => { window.__snd = { bell: 0, sea: [] }; const b = Sound.bell, sea = Sound.sea; Sound.bell = function (...a) { window.__snd.bell++; return b.apply(this, a); }; Sound.sea = function (L) { if (L && window.__snd.sea.length < 400) window.__snd.sea.push(L.diesel || L.turbine || L.petrol || 0); return sea.apply(this, arguments); }; });
+  const L0 = await page.evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return b.width ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; };
+    return { cv: r('#ship-helm .sh-cv'), tel: r('#flight-ui .telemetry'), rungs: r('#ship-helm .sh-rungs'), hl: r('#ship-helm .sh-hl'), H: innerHeight }; });
+  const h0 = await hudOf(page);
+  ok(`${tag}the hull diagram under her helm panel, inside the flight data (${L0.cv ? Math.round(L0.cv.r - L0.cv.l) + '×' + Math.round(L0.cv.b - L0.cv.t) : 'none'}), "${h0.hl}" under it; ${vp[2] ? 'HOLD, DC and CIWS over the lever, lit as she is' : 'no touch buttons on a desktop'}`,
+    h0.hull && !!L0.cv && L0.cv.l >= L0.tel.l && L0.cv.r <= L0.tel.r && L0.cv.b <= L0.tel.b && L0.rungs.r <= L0.tel.r && L0.hl.r <= L0.tel.r && L0.tel.b < L0.H && (vp[2] ? /^(no heel|\d+° (port|stbd))/ : /^Heel \d+°/).test(h0.hl) && (vp[2] ? h0.btn.join() === 'HOLD:true,DCANY:false,CIWS:true' : h0.btn.join() === ',,'), { h0, L0 });
+  // her longest heel and trim words still inside the flight data (they once widened the helm panel past it), and [WP12 fix]
+  // every word of them on show at the heels and trims a sinking ship reaches (two-digit ones cut "stbd" and "stern" on a
+  // desktop), a capsized hull's trim folded (151° read for one level fore and aft: 29°)
+  const lw = await page.evaluate(() => { const v = Flight.active, h = v.heel, t = v.trim, D = Math.PI / 180, out = [];
+    const r = (s) => document.querySelector(s).getBoundingClientRect(), T = r('#flight-ui .telemetry');
+    let inP = true;
+    for (const [a, b] of [[12, -3.4], [12, -10], [-40, -20], [-25, -15], [31, -18], [158, 151]]) {
+      v.heel = a * D; v.trim = b * D; Ship._hud.HD.v = null; Ship.diagram(Flight);
+      const sp = [...document.querySelectorAll('#ship-helm .sh-hl span')];
+      out.push({ txt: sp.map((e) => e.textContent).join(' | '), fit: sp.every((e) => e.scrollWidth <= e.clientWidth + 0.5) });
+      inP = inP && r('#ship-helm .sh-hl').right <= T.right + 0.5 && r('#ship-helm .sh-rungs').right <= T.right + 0.5 && r('#ship-helm .sh-bar').right <= T.right + 0.5;
+    }
+    v.heel = h; v.trim = t; Ship._hud.HD.v = null; Ship.diagram(Flight);
+    return { hl: out[0].txt, out, in: inP }; });
+  const want = [['12° stbd', '3° stern'], ['12° stbd', '10° stern'], ['40° port', '20° stern'], ['25° port', '15° stern'], ['31° stbd', '18° stern'], ['158° stbd', '29° bow']];
+  ok(`${tag}her heel and trim words in full at every heel and trim a sinking ship shows (${lw.out.map((o) => `"${o.txt}"`).join(', ')}), the helm panel inside the flight data`,
+    lw.in && lw.out.every((o, i) => o.fit && want[i].every((w) => o.txt.includes(w))), lw);
+  {
+    const L = await page.evaluate(layout);
+    for (const [k, s2] of [['hold', '#btn-shold'], ['dc', '#btn-sdc'], ['ciws', '#btn-sciws']]) L.items[k] = await page.evaluate((s2) => { const r = document.querySelector(s2).getBoundingClientRect(); return r.width ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; }, s2);
+    judge(`${tag}the armed destroyer`, L, vp[2] ? ['stick', 'throttle', 'telemetry', 'map', 'hold', 'dc', 'ciws'] : ['telemetry', 'keys', 'throttle']);
+  }
+  await shot(page, `hud-${sz}`);
+  // the telegraph's bell as she is rung ahead, the engines' level with it
+  await page.evaluate(() => Flight.setTel(Flight.active, 2)); await page.evaluate(() => window.__simWait(1.5, true));
+  const snd = await page.evaluate(() => ({ bell: window.__snd.bell, sea: window.__snd.sea.slice(-3) }));
+  await page.evaluate(() => Flight.setTel(Flight.active, 0));
+  ok(`${tag}her sounds: the telegraph's bell rung with the order (${snd.bell}), her engines' level asked of the sound (${snd.sea.map((x) => x.toFixed(2)).join(', ')})`, snd.bell >= 1 && snd.sea.length > 0 && snd.sea.every((x) => x > 0), snd);
+  // touch: HOLD, DC, CIWS do what their keys do
+  if (vp[2]) {
+    const tap = async (s2) => { const b2 = await box(page, s2); await page.touchscreen.tap(b2.x, b2.y); await frames(page, 2); return hudOf(page); };
+    const a = await tap('#btn-shold'), d1 = await tap('#btn-sdc'), c = await tap('#btn-sciws');
+    ok(`${tag}touch: HOLD to hand steering (${a.btn[0]}), DC to flooding first (${d1.btn[1]}), CIWS to holding fire (${c.btn[2]})`, a.sas === 'manual' && a.btn[0] === 'HAND:false' && d1.dc === 'flood' && d1.btn[1] === 'DCFLOOD:true' && c.ciws === false && c.btn[2] === 'CIWS:false', { a: a.btn, d1: d1.btn, c: c.btn });
+    await tap('#btn-shold'); await tap('#btn-sdc'); await tap('#btn-sdc'); await tap('#btn-sciws');
+  } else { // [WP12 fix] a desktop: 6 and 7 said on the helm panel (CIWS HOLD, DC FLOOD), back again with 6, 7, 7
+    const kit = async (k) => { if (k) { await page.keyboard.press(k); await frames(page, 2); } return page.evaluate(() => { const e = document.querySelector('#ship-helm .sh-kit'); Controls.keyHints(Flight);
+      const kh = [...document.querySelectorAll('#key-hints-list > div')].map((d) => d.textContent).find((t) => /CIWS/.test(t)) || '';
+      return { txt: [...e.children].map((c) => c.textContent).filter(Boolean).join(' · '), h: e.getBoundingClientRect().height, ciws: Flight.active.sh.ciwsOn, dc: Flight.active.sh.dcPri, kh }; }); };
+    const k0 = await kit(null), k6 = await kit('Digit6'), k7 = await kit('Digit7');
+    await kit('Digit6'); await kit('Digit7'); const k9 = await kit('Digit7');
+    ok(`${tag}a desktop's helm panel says what the phone's CIWS and DC buttons show: "${k0.txt}", 6: "${k6.txt}", 7: "${k7.txt}", back: "${k9.txt}"; the key hint says what 6 does ("${k0.kh}", "${k6.kh}")`,
+      k0.h > 0 && k0.txt === 'CIWS AUTO · DC ANY' && k6.txt === 'CIWS HOLD · DC ANY' && !k6.ciws && k7.txt === 'CIWS HOLD · DC FLOOD' && k9.txt === 'CIWS AUTO · DC ANY' && k9.ciws && k9.dc === 'auto'
+      && /CIWS hold fire$/.test(k0.kh) && /CIWS auto$/.test(k6.kh) && /CIWS hold fire$/.test(k9.kh), { k0, k6, k7, k9 });
+  }
+  // flooding: holes in two compartments, the water in; an engine on fire
+  const k0 = (await hudOf(page)).key;
+  await page.evaluate(() => {
+    const v = Flight.active, S = v.sh, c0 = S.comps[Math.floor(S.comps.length / 2)], c1 = S.comps[1], rows = [];
+    for (const c of [c0, c1]) { const p = c.p, x = (c.lo + c.hi) / 2, P = partPt(p, x, 0); rows.push([p, P.x, P.y - 1.5, partZ(p) + 6, 0.5]); }
+    // (and two shells' over the waterline by her forward gun, where her aim camera can see them: one in her starboard side
+    // 20 m aft of it, one on her forecastle 8 m aft of it)
+    const gun = v.aimed.reduce((a, q) => (((q.def.weapon && q.def.weapon.cal) || 0) > ((a && a.def.weapon && a.def.weapon.cal) || 0) ? q : a), null), gx = gun ? gun.x : v.com.x;
+    const near = (x) => { const off = (q) => { const R = partRect(q); return Math.max(R.l - x, x - R.r, 0); }; const p = S.hulls.reduce((a, q) => (off(q) < off(a) ? q : a)), R = partRect(p); return { p, R, x: clamp(x, R.l + 1, R.r - 1) }; };
+    { const h = near(gx - 20); rows.push([h.p, h.x, h.R.t - 1.5, partZ(h.p) + 6, 0.5]); }
+    { const h = near(gx - 8); rows.push([h.p, h.x, h.R.t + 1, partZ(h.p), 0.5]); }
+    Ship.addHoles(v, rows, Flight.time);
+    // the aim along a direction D (sim: its level part), pitch rad, the camera dist m back
+    window.__aimDir = async (D, pitch, dist) => {
+      const k = App.H / 2 / Math.tan((25 * Math.PI) / 180); Flight.scale = k / dist;
+      const r = Math.hypot(v.x, v.y, v.z), ux = v.x / r, uy = v.y / r, uz = v.z / r, el = Math.hypot(ux, uy), ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux;
+      Flight.aimYaw = Math.atan2(-(D.x * nx + D.y * ny + D.z * nz), D.x * ex + D.y * ey); Flight.aimPitch = pitch; await window.__simWait(0.4, true);
+    };
+    // the scorches drawn last frame: where on the screen, whether on it, how upright their face (1: a deck's, 0: a side's)
+    window.__scorches = () => { const D = (Render3D.gfx() || {}).decals || [], c = Flight.camAbs, r = Math.hypot(v.x, v.y, v.z);
+      return D.filter((d) => d.k >= 1).map((d) => { const q = Render3D.project(c.x + d.x, c.y + d.y, c.z + d.z); return { x: Math.round(q.x), y: Math.round(q.y), up: +((d.n[0] * v.x + d.n[1] * v.y + d.n[2] * v.z) / r).toFixed(2), on: !q.behind && q.x > 0 && q.x < innerWidth && q.y > 0 && q.y < innerHeight }; }); };
+    const eng = v.parts.find((q) => q.def.engine); if (eng) eng.fire = 1;
+  });
+  await page.evaluate(() => window.__simWait(1.5, true)); await frames(page, 2);
+  const f1 = await hudOf(page);
+  await shot(page, `flooding-${sz}`);
+  // [WP12 fix] the compartments named by the numbers on the diagram (a desktop's, every one drawn: a sliver's or a short
+  // one's that won't fit its cell isn't, nor any on a phone's strip), else where along her; each number clear of her deck
+  // line, inside its cell
+  const nu = await page.evaluate(() => { const H = Ship._hud.HD; return { nums: H.nums ? [...H.nums] : [], at: (H.numAt || []).map((a) => a.map((x) => +x.toFixed(1))) }; });
+  const named = (f1.alert.match(/compartments? ([\d, ]+)/) || [, ''])[1].split(',').map((x) => +x.trim()).filter(Boolean);
+  ok(`${tag}flooding: the water in (${f1.W.toFixed(1)} m³), the diagram redrawn with it, the alert line "${f1.alert}" naming only what the diagram shows (numbers ${nu.nums.join(', ') || 'none'})`,
+    f1.W > 0 && f1.key !== k0 && (named.length ? named.every((n) => nu.nums.includes(n)) : /^Flooding · (forward|amidships|aft|all along her)/.test(f1.alert)) && (vp[2] ? !nu.nums.length && !named.length : nu.nums.length >= 3)
+    && nu.at.every(([, , y, yd]) => y >= yd + 2), { f1, k0, nu, named });
+  // her holes on her skin: scorches and dark holes (the decals). The shell's on her forecastle seen from aft over her gun
+  // (the aim along her heading, 20° down, the camera 30 m back) on every screen; the one in her side from abeam (the aim
+  // to port, 55 m back) on a desktop, whose wider view holds it as far from the gun
+  const s0 = await page.evaluate(() => Flight.scale);
+  const dk = await page.evaluate(async () => { const v = Flight.active; await window.__aimDir(v.axis(1, 0, 0), -0.35, 30); const D = (Render3D.gfx() || {}).decals || [];
+    return { n: D.length, k: D.filter((d) => d.k >= 1).length, core: D.filter((d) => d.k === 0 && d.a > 0.9).length, deck: window.__scorches().filter((q) => q.on && q.up > 0.8) }; });
+  await shot(page, `holes-${sz}`);
+  const ds = vp[2] ? null : await page.evaluate(async () => { await window.__aimDir(Flight.active.axis(0, 0, -1), -0.08, 55); return window.__scorches().filter((q) => q.on && Math.abs(q.up) < 0.3); });
+  if (ds) await shot(page, `holes-side-${sz}`);
+  await page.evaluate((s0) => { Flight.scale = s0; }, s0);
+  ok(`${tag}her holes drawn on her skin: ${dk.k} scorches and ${dk.core} dark holes (the decals' mesh); the shell's on her forecastle on the screen at ${JSON.stringify(dk.deck.map((q) => [q.x, q.y]))}${ds ? `, the one in her side at ${JSON.stringify(ds.map((q) => [q.x, q.y]))}` : ''}`,
+    dk.k >= 2 && dk.core >= 2 && dk.deck.length >= 1 && (!ds || ds.length >= 1), { dk, ds });
+  await page.evaluate(async () => { Flight.aimYaw = 0; Flight.aimPitch = 0; for (const p of Flight.active.sh.hulls) if (p.holes) for (const h of p.holes) { h.a = 1e-6; h.fix = 1; } await window.__simWait(2.6); }); // (a patched hole still leaks a tenth: these made pinholes her pumps keep up with)
+  const f2 = await hudOf(page);
+  // (the engine's fire spreads by the ship's dice over a frame time that varies: now and then to a part by a magazine,
+  // whose heating line is the fire's most pressing one)
+  ok(`${tag}the holes stopped and the water still: the fire's line ("${f2.alert}")`, /^(Fires? (aft|forward|amidships)|Magazine fire! · \d+ s)$/.test(f2.alert), f2);
+  // a hostile torpedo 1.2 km off her starboard beam, running at her; then one of hers
+  await page.evaluate(() => {
+    const v = Flight.active, side = v.axis(0, 0, 1), P = { x: v.x + side.x * 1200, y: v.y + side.y * 1200, z: v.z + side.z * 1200 }, k = (EARTH.radius - 6) / Math.hypot(P.x, P.y, P.z); P.x *= k; P.y *= k; P.z *= k;
+    const foe = { parts: [{}], name: 'Foe', kind: 'ship', body: EARTH, x: P.x, y: P.y, z: P.z, vx: 0, vy: 0, vz: 0 };
+    window.__torp = { k: 'stor', b: EARTH, x: P.x, y: P.y, z: P.z, vx: -side.x * 22, vy: -side.y * 22, vz: -side.z * 22, dx: -side.x, dy: -side.y, dz: -side.z, t: 5, t0: 0, run: 100, ph: 'run', owner: foe, spd: 22, depth: 6, dep: 6, range: 8000, cone: 0.5, acquire: 1500, dmg: 1, blast: 1, seek: 'none', life: 600 };
+    Combat.S.shots.push(window.__torp); window.__strokes.length = 0; Flight.aimYaw = Math.PI / 2;
+  });
+  await page.evaluate(() => window.__simWait(0.6, true)); await frames(page, 2);
+  const t1 = await hudOf(page), ts = await page.evaluate(() => window.__strokes.filter((x) => /^#ff5d5d\|7,6$/.test(x)).length);
+  await shot(page, `torpedo-${sz}`);
+  ok(`${tag}a torpedo off her beam: "${t1.alert}" (critical), its track dashed red in the aim view (${ts} strokes)`, /^Torpedo( in the water)? · \d{3}° · 1\.\d km$/.test(t1.alert) && /in the water/.test(t1.alert) === !vp[2] && t1.crit && ts > 0, { t1, ts });
+  await page.evaluate(() => { window.__torp.dead = true; const v = Flight.active, p = v.parts.find((q) => q.type === 'torpTube'); window.__strokes.length = 0; window.__mine = Ship.fireTorp(v, p, Flight); Flight.aimYaw = Math.PI / 2; });
+  await page.evaluate(() => window.__simWait(2, true)); await frames(page, 2);
+  const ms = await page.evaluate(() => ({ fired: !!window.__mine, n: window.__strokes.filter((x) => /^#(62d0ff|7dffb0)\|$/.test(x)).length }));
+  if (!vp[2] || vp[0] === 390) await shot(page, `torprun-${sz}`);
+  ok(`${tag}one of her own torpedoes: its run drawn solid on the sea (${ms.n} strokes)`, ms.fired && ms.n > 0, ms);
+  await page.evaluate(() => { if (window.__mine) window.__mine.dead = true; });
+  // a missile coming in from 6 km at 150 m: heard by her radars; with them knocked out, not at all
+  const mis = await page.evaluate(async () => {
+    const v = Flight.active, r = Math.hypot(v.x, v.y, v.z), up = { x: v.x / r, y: v.y / r, z: v.z / r }, f = v.axis(1, 0, 0), P = { x: v.x + f.x * 6000 + up.x * 150, y: v.y + f.y * 6000 + up.y * 150, z: v.z + f.z * 6000 + up.z * 150 };
+    const foe = { parts: [{}], name: 'Foe', kind: 'plane', body: EARTH, x: P.x, y: P.y, z: P.z, vx: 0, vy: 0, vz: 0 };
+    const m = { k: 'missile', b: EARTH, x: P.x, y: P.y, z: P.z, vx: -f.x * 250, vy: -f.y * 250, vz: -f.z * 250, dx: -f.x, dy: -f.y, dz: -f.z, t: 1, life: 1, owner: foe, target: v, dmg: 0, blast: 0 };
+    const al = () => { const a = document.querySelector('#flight-alert'); return a.hidden ? '' : a.textContent; };
+    Combat.S.shots.push(m); Ship._hud.AL.at = -1e9; Flight.updateHUD(true); const a1 = al();
+    const rad = v.parts.filter((p) => p.def.searchRadar || p.def.trackRadar); for (const p of rad) p.broken = true;
+    Ship._hud.AL.at = -1e9; Flight.updateHUD(true); const a2 = al();
+    for (const p of rad) p.broken = false;
+    m.dead = true; return { a1, a2 };
+  });
+  ok(`${tag}a missile coming in: her radars hear it ("${mis.a1}"); with them knocked out, nothing ("${mis.a2}": no magic radar)`, /^Missile( inbound)? · \d{3}° · \d\.\d km$/.test(mis.a1) && !/Missile/.test(mis.a2), mis);
+  // a magazine with a fire at it
+  const mg = await page.evaluate(() => { const v = Flight.active, p = v.parts.find((q) => q.def.module === 'ammo'); p.magT = 10; Ship._hud.AL.at = -1e9; Flight.updateHUD(true); const a = document.querySelector('#flight-alert'); const t = a.hidden ? '' : a.textContent; p.magT = 0; return t; });
+  ok(`${tag}a fire at her magazine: "${mg}"`, /^Magazine fire! · 20 s$/.test(mg), mg);
+  // a ship of theirs we doomed: SUNK over the crosshair in the aim view (once the knock-out's own line has gone)
+  {
+    await page.evaluate(async () => { const t = window.__mk('cyclon', -4300, 0, Math.PI / 2); t.ai = { sea: true }; await window.__simWait(0.5); Ship.doom(t, Flight, 'sunk', Flight.active); await window.__simWait(2.4); const e = Flight.active.parts.find((q) => q.def.engine); if (e) e.fire = 1; });
+    // (each word where nothing covers it: clear of the alert line ("Fire …" now), the touch buttons, the weapon chip, the
+    // lever and the rest, the crew box and the scope the canvas draws over it)
+    const fate = (word) => page.evaluate(async (word) => {
+      window.__texts.length = 0; Death.feedback(word, Flight); await window.__simWait(0.3, true);
+      const B = GHUD._S.seaBan, P = GHUD._S.P || {}, rr = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width ? { n: q, left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null; };
+      const obs = ['#flight-alert', '#btn-shold', '#btn-sdc', '#btn-sciws', '#weapon-box .weapon-chip', '#flight-ui .throttle-box', '#ammo-stack', '#btn-fire', '#btn-sight', '#btn-cm', '#btn-lock', '#joy', '#flight-ui .telemetry', '#gmap', '#key-hints'].map(rr).filter(Boolean);
+      if (P.diag) obs.push({ n: 'crew box', left: P.diag.x, right: P.diag.x + P.diag.w, top: P.diag.y, bottom: P.diag.y + P.diag.h + 18 });
+      if (P.scope) obs.push({ n: 'scope', left: P.scope.x - P.scope.R, right: P.scope.x + P.scope.R, top: P.scope.y - P.scope.R, bottom: P.scope.y + P.scope.R + 14 });
+      const hit = B ? obs.filter((o) => B.l < o.right && B.r > o.left && B.t < o.bottom && B.b > o.top).map((o) => o.n) : ['not drawn'];
+      return { drawn: window.__texts.includes(word), B: B && [B.l, B.t, B.r, B.b].map(Math.round), hit, alert: document.querySelector('#flight-alert').hidden ? '' : document.querySelector('#flight-alert').textContent }; }, word);
+    const sb = await fate('SUNK');
+    await shot(page, `sunk-banner-${sz}`);
+    const oa = await fate('OUT OF ACTION');
+    ok(`${tag}a ship of theirs going down: SUNK over the crosshair in the aim view; it and OUT OF ACTION (with "${sb.alert}" up) where nothing covers them (${JSON.stringify([sb.B, oa.B])})`, sb.drawn && oa.drawn && !sb.hit.length && !oa.hit.length, { sb, oa });
+    await page.evaluate(() => { const e = Flight.active.parts.find((q) => q.def.engine); if (e) e.fire = 0; });
+  }
+  // her aim camera: back to her length's reach and in to 7 m (it was held to 30 m); [WP12 fix] its first notch in seen
+  // from where she set out (on a phone in portrait her follow camera stands farther back than her reach, Ship.chaseFar:
+  // the notch went into that gap), and zoomed out past her reach the follow camera's own stand again (her loss eases
+  // into it: her reach alone put a destroyer's stern off a phone's screen)
+  const zm = await page.evaluate(() => { const k = App.H / 2 / Math.tan((25 * Math.PI) / 180), z = () => k / Flight.scale, v = Flight.active, reach = Ship.aimFar(v), ad = () => Math.min(z(), reach);
+    const set = z(), a0 = ad(); Flight.zoomBy(1.4); const a1 = ad();
+    for (let i = 0; i < 30; i++) Flight.zoomBy(0.7); const far = ad(), back = z(); for (let i = 0; i < 40; i++) Flight.zoomBy(1.4); const near = ad(); for (let i = 0; i < 30; i++) Flight.zoomBy(0.7);
+    return { set, a0, a1, far, back, chase: Ship.chaseFar(v, innerWidth, innerHeight), near, reach, in: k / Math.min(80, k / 7) }; });
+  ok(`${tag}her aim camera zooms out to ${zm.far.toFixed(0)} m (her reach ${zm.reach.toFixed(0)} m, not 30) and in to ${zm.near.toFixed(1)} m (as any craft's); its first notch in seen (${zm.a0.toFixed(0)} → ${zm.a1.toFixed(0)} m, her follow camera ${zm.set.toFixed(0)} m back), and out past her reach the follow camera's own stand (${zm.back.toFixed(0)} m; Ship.chaseFar ${zm.chase.toFixed(0)} m)`,
+    Math.abs(zm.far - zm.reach) < 1 && zm.reach > 150 && Math.abs(zm.near - zm.in) < 0.2 && zm.a1 < zm.a0 / 1.3 && zm.chase >= zm.reach - 0.01 && Math.abs(zm.back - zm.chase) < 1, zm);
+  // [WP12 fix] her loss without a cut: the aim camera eased into the follow camera (from her reach to the follow camera's
+  // stand, Ship.chaseFar: on a phone in portrait farther back), frame by frame (the follow camera's distance once from
+  // naturalScale: 119 m → 457 m in one frame on a phone, and a 30° swing); at its end her bow and stern on the screen
+  if (vp[0] !== 390) {
+    await page.evaluate(() => {
+      window.__cam = []; const R = Render3D.renderFlight;
+      Render3D.renderFlight = function (...a) { const r = R.apply(this, a), g = Render3D.gfx(), v = Flight.active; if (g && v && v.parts.length) { const C = g.camAt, bp = bodyPos(v.body, Flight.time), dx = C.x - bp.x - v.x, dy = C.y - bp.y - v.y, dz = C.z - v.z, L = v.toLocal(v.x + dx, v.y + dy, v.z + dz);
+        window.__cam.push({ t: Flight.time, d: Math.hypot(dx, dy, dz), a: Math.atan2(L.z, L.x), aim: !!Flight.aimCam }); } return r; };
+    });
+    await page.evaluate(() => window.__simWait(0.3, true));
+    await page.evaluate(() => { Ship.doom(Flight.active, Flight, 'sunk'); });
+    await page.evaluate(() => window.__simWait(2.5, true));
+    const cm = await page.evaluate(() => { const C = window.__cam, far = Ship.aimFar(Flight.active), chase = Ship.chaseFar(Flight.active, innerWidth, innerHeight); let turn = 0, dr = 0;
+      for (let i = 1; i < C.length; i++) { const p = C[i - 1], c = C[i], dt = c.t - p.t; if (!(dt > 0)) continue; turn = Math.max(turn, (Math.abs(Math.atan2(Math.sin(c.a - p.a), Math.cos(c.a - p.a))) * 57.3) / dt); dr = Math.max(dr, Math.abs(c.d - p.d) / Math.max(1, p.d)); }
+      return { n: C.length, aimed: C.filter((c) => c.aim).length, turn: +turn.toFixed(0), dr: +dr.toFixed(3), d0: +C[0].d.toFixed(0), d1: +C[C.length - 1].d.toFixed(0), far: +far.toFixed(0), chase: +chase.toFixed(0) }; });
+    const lf = await framing(page);
+    await shot(page, `lost-camera-${sz}`);
+    ok(`${tag}her loss: the aim camera eased into the follow camera (${cm.n} frames: at most ${cm.turn}°/s round her, ${(cm.dr * 100).toFixed(1)}% of its distance a frame; ${cm.d0} m → ${cm.d1} m, her reach ${cm.far} m, the follow camera's stand ${cm.chase} m), her bow and stern on the screen (${JSON.stringify(lf.ends)})`,
+      cm.n > 8 && cm.aimed > 0 && cm.aimed < cm.n && cm.turn <= 90 && cm.dr <= 0.1 && cm.d1 <= cm.chase * 1.15 && lf.on, { cm, lf });
+  }
+  await pageErrors(page, tag + 'hud ');
+  await ctx.close();
+}
+// ---- [WP12 fix] a small phone at UI size 125%: her HOLD, DC and CIWS stand higher, so the radar scope takes a smaller place
+// under the crew box (it moved beside it, where the alert line goes, and lay under the tip): the tip and the scope apart,
+// and a torpedo's and flooding's warnings clear of her hull diagram and its heel and trim
+{
+  const tag = '360×640 UI 125% ', { ctx, page } = await open([360, 640, true], tag, { uiSize: 1.25 });
+  await sailArmed(page, 'arley');
+  await page.waitForTimeout(1300); await frames(page, 2);
+  const rects = () => page.evaluate(() => { const r = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return null; const b = e.getBoundingClientRect(); return b.width ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; }, P = GHUD._S.P || {};
+    return { z: Controls.z, hint: r('#hint'), alert: r('#flight-alert'), text: document.querySelector('#flight-alert').hidden ? '' : document.querySelector('#flight-alert').textContent, cv: r('#ship-helm .sh-cv'), hl: r('#ship-helm .sh-hl'), tel: r('#flight-ui .telemetry'),
+      scope: P.scope ? { l: P.scope.x - P.scope.R, t: P.scope.y - P.scope.R, r: P.scope.x + P.scope.R, b: P.scope.y + P.scope.R + 14 } : null, btns: ['#btn-shold', '#btn-sdc', '#btn-sciws'].map(r).filter(Boolean) }; });
+  const r0 = await rects();
+  await page.evaluate(() => {
+    const v = Flight.active, side = v.axis(0, 0, 1), P = { x: v.x + side.x * 1200, y: v.y + side.y * 1200, z: v.z + side.z * 1200 }, k = (EARTH.radius - 6) / Math.hypot(P.x, P.y, P.z); P.x *= k; P.y *= k; P.z *= k;
+    const foe = { parts: [{}], name: 'Foe', kind: 'ship', body: EARTH, x: P.x, y: P.y, z: P.z, vx: 0, vy: 0, vz: 0 };
+    Combat.S.shots.push({ k: 'stor', b: EARTH, x: P.x, y: P.y, z: P.z, vx: -side.x * 22, vy: -side.y * 22, vz: -side.z * 22, dx: -side.x, dy: -side.y, dz: -side.z, t: 5, t0: 0, run: 100, ph: 'run', owner: foe, spd: 22, depth: 6, dep: 6, range: 8000, cone: 0.5, acquire: 1500, dmg: 1, blast: 1, seek: 'none', life: 600 });
+  });
+  await page.evaluate(() => window.__simWait(0.6, true)); await frames(page, 3);
+  const r1 = await rects();
+  await shot(page, 'torpedo-ui125-360x640');
+  const meet = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
+  ok(`${tag}the scope (${JSON.stringify(r0.scope && Object.values(r0.scope).map(Math.round))}) clear of the tip and her buttons; "${r1.text}" clear of her hull diagram, its heel and trim and the flight data`,
+    !!r0.scope && !meet(r0.scope, r0.hint) && r0.btns.every((B) => !meet(r0.scope, B)) && /^Torpedo/.test(r1.text) && !meet(r1.alert, r1.cv) && !meet(r1.alert, r1.hl) && !meet(r1.alert, r1.tel) && (!r1.scope || !meet(r1.alert, r1.scope)), { r0, r1 });
+  // (and flooding's longer line, wrapped beside the crew box: laid out across the whole gap, a subpixel past the crew box's
+  // fractional edge threw it out and it fell back over her hull diagram)
+  await page.evaluate(() => {
+    for (const s of Combat.S.shots) if (s.k === 'stor') s.dead = true;
+    const v = Flight.active, S = v.sh, rows = [];
+    for (const i of [1, 2, 3]) { const c = S.comps[i], p = c.p, x = (c.lo + c.hi) / 2, P = partPt(p, x, 0), R = partRect(p); rows.push([p, P.x, R.b + (R.t - R.b) * 0.3, partZ(p) + 30, 0.8]); }
+    Ship.addHoles(v, rows, Flight.time);
+  });
+  await page.evaluate(() => window.__simWait(2.5, true)); await frames(page, 3);
+  const r2 = await rects();
+  await shot(page, 'flooding-ui125-360x640');
+  ok(`${tag}"${r2.text}" (${r2.alert && [r2.alert.l, r2.alert.t, r2.alert.r, r2.alert.b].map(Math.round)}) clear of her hull diagram, its heel and trim, the flight data and the scope`,
+    /^Flooding/.test(r2.text) && !meet(r2.alert, r2.cv) && !meet(r2.alert, r2.hl) && !meet(r2.alert, r2.tel) && (!r2.scope || !meet(r2.alert, r2.scope)), r2);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+// ---- [WP12 fix] the follow camera on a phone in portrait (spec §12.2: "a 156 m ship framed whole"): from her reach alone
+// (Ship.aimFar) the Osca's to the Arley's stern lay off the screen's left edge, under HOLD and DC; it stands back by the
+// screen's width too (Ship.chaseFar). Unarmed (so she starts in the follow camera), as she sets out and swung broadside
+// both ways and on her quarter (Render3D.orbitBy): bow and stern on the screen, clear of its sides by 4% of its width.
+// Measured as each frame is drawn, from the camera's own focus
+{
+  const tag = '360×640 chase ', { ctx, page } = await open([360, 640, true], tag);
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(() => {
+    const R = Render3D.renderFlight;
+    Render3D.renderFlight = function (...a) {
+      const r = R.apply(this, a), F = Flight, v = F.active;
+      if (v && v.kind === 'ship' && v.parts.length) {
+        const B = v.bounds, ym = (B.minY + B.maxY) / 2, P = (x) => { const w = v.toWorld(x, ym, v.com.z || 0); return Render3D.project(F.camAbs.x + w.x - v.x, F.camAbs.y + w.y - v.y, F.camAbs.z + w.z - v.z); }, E = [P(B.maxX), P(B.minX)];
+        window.__ends = { on: E.every((q) => !q.behind), mg: Math.min(...E.map((q) => Math.min(q.x, innerWidth - q.x, q.y, innerHeight - q.y))), ends: E.map((q) => [Math.round(q.x), Math.round(q.y)]) };
+      }
+      return r;
+    };
+  });
+  for (const key of ['osca', 'arley']) {
+    await page.evaluate(async (key) => { await Render3D.load(); if (Flight.running) Flight.stop(); App.toBuild(); Builder.loadTemplate(key); Builder.parts = Builder.parts.filter((p) => !(p.def.weapon || p.def.ring || p.def.shape === 'tturret' || p.def.trackRadar || p.def.searchRadar)); Builder.changed(); store.set('rss.flight', null); App.launch(); }, key);
+    await page.waitForFunction((key) => Flight.running && Flight.active && Flight.active.kind === 'ship' && Flight.active.name === TEMPLATES[key].name && Flight.time > 0.6, key, { timeout: 180000 });
+    await frames(page, 3);
+    const seen = [], d = await page.evaluate(() => ({ chase: Ship.chaseFar(Flight.active, innerWidth, innerHeight), far: Ship.aimFar(Flight.active), aim: !!Flight.aimCam }));
+    let yaw = 0.5; // (CAM0's: off her quarter from astern)
+    for (const y of [0.5, 1.571, -1.571, 1.35]) {
+      if (y !== yaw) { await page.evaluate((dx) => Render3D.orbitBy(dx, 0), (yaw - y) / 0.006); yaw = y; await page.waitForTimeout(1500); await frames(page, 10); }
+      const e = await page.evaluate(() => window.__ends);
+      seen.push({ yaw: y, ...e, mg: Math.round(e.mg) });
+      if (Math.abs(y) > 1.5) await shot(page, `chase-${key}-broadside${y > 0 ? '' : '-port'}-360x640`);
+    }
+    await page.evaluate(() => Render3D.resetCamera());
+    ok(`${tag}the ${key === 'arley' ? 'destroyer' : 'Osca'}'s follow camera ${d.chase.toFixed(0)} m back (her reach ${d.far.toFixed(0)} m): bow and stern on the screen as she sets out, broadside both ways and on her quarter (${seen.map((e) => `${e.yaw}: ${e.mg} px clear`).join(', ')})`,
+      !d.aim && d.chase > d.far * 1.3 && seen.every((e) => e.on && e.mg >= 0.04 * 360), seen);
+  }
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+// ---- the bridge view in a Rough sea: the eye never inside her (her parts' boxes, her hull), over the wave at it (the RIB on
+// a phone in portrait, the Cyclon on a desktop); first, unarmed, the follow camera: the RIB close, the Cyclon whole
+for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, false]]]) {
+  const tag = `bridge ${key} `, { ctx, page } = await open(vp, tag, { sea: 'rough' });
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(async (key) => { await Render3D.load(); App.toBuild(); Builder.loadTemplate(key); Builder.parts = Builder.parts.filter((p) => !(p.def.weapon || p.def.ring || p.def.shape === 'tturret' || p.def.trackRadar || p.def.searchRadar)); Builder.changed(); store.set('rss.flight', null); App.launch(); }, key);
+  await page.waitForFunction(() => Flight.running && Flight.active && Flight.active.kind === 'ship' && Flight.time > 0.6, null, { timeout: 180000 });
+  await frames(page, 3);
+  const fr = await framing(page);
+  await shot(page, `chase-${key}-${vp[0]}x${vp[1]}`);
+  const rib = key === 'zodiak';
+  ok(`${tag}${vp[0]}×${vp[1]}: the follow camera as she sets out, ${fr.d.toFixed(0)} m from her middle: her ${fr.L.toFixed(0)} m on the screen (bow and stern: ${JSON.stringify(fr.ends)}, ${(fr.span * 100).toFixed(0)}% of its width)${rib ? ', close' : ''}`,
+    !fr.aim && fr.on && (rib ? fr.d < 45 && fr.span > 0.15 : fr.d < 6 * fr.L), fr);
+  await page.evaluate(() => {
+    Ship.setSea('rough'); Flight.setTel(Flight.active, 3); Flight.setBridge(true); window.__eyes = [];
+    const R = Render3D.renderFlight;
+    Render3D.renderFlight = function (...a) {
+      const r = R.apply(this, a), c = Render3D.fpvCam();
+      if (c && c.E) {
+        const v = Flight.active, E = c.E, L = v.toLocal(E.x, E.y, E.z);
+        const inP = v.parts.some((p) => { const q = partRect(p); return L.x > q.l && L.x < q.r && L.y > q.b && L.y < q.t && Math.abs(L.z - partZ(p)) < partDepth(p) / 2 && (!p.def.shull || !!Ship.insideHull(v, L)); });
+        window.__eyes.push({ inP, inH: !!Ship.insideHull(v, L), over: Math.hypot(E.x, E.y, E.z) - EARTH.radius - Ship.seaAt(EARTH, E, Flight) });
+      }
+      return r;
+    };
+  });
+  for (let i = 0; i < 3; i++) { const t0 = await page.evaluate(() => Flight.time); await page.waitForFunction((t) => Flight.time > t, t0 + 2.5, { timeout: 600000 }); await frames(page, 2); await shot(page, `bridge-rough-${key}-${i}`); }
+  const ey = await page.evaluate(() => { const E = window.__eyes; return { n: E.length, inP: E.filter((e) => e.inP).length, inH: E.filter((e) => e.inH).length, low: Math.min(...E.map((e) => e.over)), kn: +(Flight.active.speed() * SHIP.KN).toFixed(1) }; });
+  ok(`${tag}the bridge view in a Rough sea, under way (${ey.kn} kn): ${ey.n} frames, the eye never inside her (${ey.inP} in her parts, ${ey.inH} in her hull) and at least ${ey.low.toFixed(2)} m over the wave at it`, ey.n > 10 && !ey.inP && !ey.inH && ey.low > 0.25, ey);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+// ---- a sinking on a phone: the diagram filling, ABANDON SHIP once she is lost
+{
+  const tag = '390×844 sink ', { ctx, page } = await open([390, 844, true], tag);
+  await sail(page);
+  await page.evaluate(() => { window.__simWait = async (dt, draw) => { Render3D.skipDraw = !draw; const f = () => new Promise((r) => requestAnimationFrame(r)), t0 = Flight.time, w0 = performance.now(); while (Flight.time < t0 + dt && performance.now() - w0 < 600000) await f(); Render3D.skipDraw = false; }; });
+  const s0 = await hudOf(page);
+  await page.evaluate(() => { const v = Flight.active, S = v.sh, rows = []; for (const c of S.comps) { const x = (c.lo + c.hi) / 2, P = partPt(c.p, x, 0); rows.push([c.p, P.x, P.y - 1, partZ(c.p) - 2, 1.5]); } Ship.addHoles(v, rows, Flight.time); });
+  await page.evaluate(() => window.__simWait(4, true)); await frames(page, 2);
+  const s1 = await hudOf(page);
+  await shot(page, 'sink-phone-4s-390x844');
+  await page.evaluate(async () => { Render3D.skipDraw = true; const f = () => new Promise((r) => requestAnimationFrame(r)), w0 = performance.now(); while (!(Flight.active.fate || Flight.active.dead) && performance.now() - w0 < 900000) await f(); Render3D.skipDraw = false; });
+  await page.evaluate(() => window.__simWait(2, true)); await frames(page, 2);
+  const s2 = await hudOf(page);
+  await shot(page, 'sink-phone-lost-390x844');
+  ok(`a phone's sinking: the diagram fills (${s0.W.toFixed(0)} → ${s1.W.toFixed(0)} m³, "${s1.alert}"); lost, the helm's lines go and the diagram stays with "${s2.hl}"`, s1.W > s0.W + 1 && s1.key !== s0.key && /^Flooding/.test(s1.alert) && s2.lost && s2.hull && s2.hl === 'ABANDON SHIP', { s0, s1, s2 });
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ---- [WP12 fix] her sounds' rules (Ship.sounds with a recording Sound, three ships and a stand-in flight), their loudness
+// (Sound.sea rendered offline through its own nodes, beside a tank's engine at full), and the holes' scorches held to her
+// plating (Ship.holeMarks: never over her deck edge, her keel or her ends)
+{
+  const tag = 'sound and scorches ', { ctx, page } = await open([1280, 720, false], tag);
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  const sr = await page.evaluate(() => {
+    const mk = (key, e) => { const T = TEMPLATES[key], ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), t = new Vessel(ps, adj, EARTH);
+      t.kind = T.kind; t.name = T.name; t.stages = computeStages(ps, adj, findControlPart(ps).id); t.rebuildGroups(); t.placeOnSurface(EARTH, siteAngle(EARTH, e), 0, 0, Math.PI); Ship.launch(t, { e, z: 0, yaw: Math.PI }); return t; };
+    const a = mk('arley', -3000), c1 = mk('cyclon', -3600), c2 = mk('cyclon', -5500), t0 = 5, b0 = bodyPos(EARTH, t0);
+    const F = { active: a, vessels: [a, c1, c2], running: true, paused: false, time: t0, camAbs: { x: b0.x + a.x, y: b0.y + a.y, z: a.z }, bridge: false, toast() {} };
+    const was = { clang: Sound.clang, torpedo: Sound.torpedo, sea: Sound.sea, separate: Sound.separate }, log = { clang: [], torp: [], sea: null, sep: 0 };
+    Sound.clang = (k, d) => log.clang.push(Math.round(d)); Sound.torpedo = (d, drop) => log.torp.push({ d: Math.round(d), drop: !!drop, t: +F.time.toFixed(2) }); Sound.sea = (L) => { log.sea = L ? { ...L } : null; }; Sound.separate = () => log.sep++;
+    const out = {};
+    try {
+      // (the camera over the Arley as the body moves on: the view's place is absolute, so it is put again with the time)
+      const cam = () => { const bp = bodyPos(EARTH, F.time); F.camAbs = { x: bp.x + a.x, y: bp.y + a.y, z: a.z }; };
+      const step = (n = 3) => { for (let i = 0; i < n; i++) { F.time += 1 / 60; cam(); Ship.sounds(F, 1 / 60); } };
+      const hole = (v, ar) => { const h = v.parts.filter((p) => p.def.shull)[1]; (h.holes = h.holes || []).push({ x: h.x, y: h.y, z: 0, a: ar, fix: 0 }); };
+      step();
+      hole(a, 0.8); step(); out.first = log.clang.length; // (her first hole: a clang)
+      hole(c1, 3); step(); out.near = log.clang.length - out.first; // (a Cyclon 600 m off, its first hole)
+      hole(c2, 3); step(); out.far = log.clang.length - out.first - out.near; // (one 2.5 km off: none)
+      out.dist = [Math.hypot(c1.x - a.x, c1.y - a.y, c1.z - a.z), Math.hypot(c2.x - a.x, c2.y - a.y, c2.z - a.z)].map(Math.round);
+      // her close-in gun firing as she is lost: its buzz stops with her (the stale flag too)
+      const gun = a.ciws[0]; gun.gunOn = true; step(); out.buzz = log.sea && log.sea.ciws;
+      a.fate = 'sunk'; Ship.ciwsStep(F, 1 / 60); out.gunOff = gun.gunOn === false; gun.gunOn = true; step(); out.buzzLost = log.sea ? log.sea.ciws : 0; gun.gunOn = false; a.fate = undefined;
+      // a drop's splash where it meets the water (not at release); her own tube: one launch sound
+      const side = a.axis(0, 0, 1), r = Math.hypot(a.x, a.y, a.z), up = { x: a.x / r, y: a.y / r, z: a.z / r }, fw = a.axis(1, 0, 0), P = { x: a.x + side.x * 300 + up.x * 60, y: a.y + side.y * 300 + up.y * 60, z: a.z + side.z * 300 + up.z * 60 };
+      const s = { k: 'stor', b: EARTH, x: P.x, y: P.y, z: P.z, vx: fw.x * 60, vy: fw.y * 60, vz: fw.z * 60, dx: fw.x, dy: fw.y, dz: fw.z, t: 0, run: 0, ph: 'air', owner: { parts: [{}], name: 'Plane', kind: 'plane', body: EARTH }, spd: 22, depth: 6, dep: 0, range: 8000, cone: 0.5, acquire: 1500, dmg: 0, blast: 0, seek: 'none', drop: true, life: 600 };
+      Combat.S.shots.push(s);
+      let wet = null;
+      for (let i = 0; i < 1200 && Combat.S.shots.includes(s); i++) { if (!Ship.torpStep(s, 1 / 120, F)) break; if (s.ph === 'run' && wet == null) wet = +F.time.toFixed(2); F.time += 1 / 120; if (i % 2) { cam(); Ship.sounds(F, 1 / 60); } if (wet != null && F.time > wet + 0.2) break; }
+      s.dead = true; Combat.S.shots.splice(Combat.S.shots.indexOf(s), 1);
+      out.drop = { wet, played: log.torp.filter((x) => x.drop) };
+      log.torp.length = 0; log.sep = 0;
+      const tube = a.parts.find((q) => q.type === 'torpTube'); tube.ammo = 3;
+      const m = Ship.fireTorp(a, tube, F); step(6);
+      out.tube = { fired: !!m, torp: log.torp.length, sep: log.sep };
+      if (m) { m.dead = true; Combat.S.shots.splice(Combat.S.shots.indexOf(m), 1); }
+    } finally { Object.assign(Sound, was); }
+    // the scorches: a hole 0.3 m under her deck edge (the Arley's side), a missile's 3.5 m² there, and the RIB holed through
+    const z = mk('zodiak', -6500), marks = [];
+    // (amidships on a hull part, under her deck edge by `under` m, in her own section mapped as Ship.addHoles' rows are;
+    // the scorch's rim, 0.75 of its half-size, against her deck edge and her keel there; moved: how far it came down)
+    for (const [v, ar, under] of [[a, 0.5, 0.3], [a, 3.46, 0.3], [a, 1.18, 1.5], [z, 20, 0.2]]) {
+      const H = v.parts.filter((p) => p.def.shull), p = H[Math.floor(H.length / 2)], S = shullOf(p.def), x = (S.x0 + S.x1) / 2, sec = shullSec(p.def.shull.st, x);
+      const Q = partPt(p, x, sec[0] - under), D = partPt(p, x, sec[0]), K = partPt(p, x, sec[1]);
+      for (const q of H) q.holes = null; // (the clang checks' holes gone: this one alone)
+      p.holes = [{ x: Q.x, y: Q.y, z: partZ(p) + sec[2] + 0.5, a: ar, fix: 0 }];
+      const M = Ship.holeMarks(v).find((m) => m.p === p);
+      marks.push({ ship: v.name, a: ar, s: +M.s.toFixed(2), c: +M.c.toFixed(2), moved: +(Q.y - M.y).toFixed(2), top: +(M.y + 0.75 * M.s - D.y).toFixed(2), bot: +(M.y - 0.75 * M.s - K.y).toFixed(2), side: !M.ny && !M.nx });
+      p.holes = null;
+    }
+    return { ...out, marks };
+  });
+  ok(`[WP12] every hull hit clangs, the first too (${sr.first}; a Cyclon ${sr.dist[0]} m off: ${sr.near}), none past 1.5 km (one ${sr.dist[1]} m off: ${sr.far})`, sr.first === 1 && sr.near === 1 && sr.far === 0 && sr.dist[1] > 1500, sr);
+  ok(`[WP12] her close-in gun's buzz (${sr.buzz}) stops when she is lost: its flag cleared (${sr.gunOff}), and none from a lost ship (${sr.buzzLost})`, sr.buzz === 1 && sr.gunOff && sr.buzzLost === 0, sr);
+  ok(`[WP12] a dropped torpedo's splash as it meets the water (${sr.drop.wet} s: ${JSON.stringify(sr.drop.played)}), her own tube one launch sound (${sr.tube.torp} + ${sr.tube.sep})`,
+    sr.drop.wet != null && sr.drop.played.length === 1 && sr.drop.played[0].t >= sr.drop.wet && sr.drop.played[0].t < sr.drop.wet + 0.2 && sr.tube.fired && sr.tube.torp === 1 && sr.tube.sep === 0, sr);
+  ok(`[WP12] the holes' scorches on her plating: under her deck edge and over her keel (${sr.marks.map((m) => `${m.ship} ${m.a} m²: ${m.s} m, down ${m.moved} m, ${m.top} m to the edge`).join('; ')}); one 1.5 m under it as it was`,
+    sr.marks.every((m) => m.side && m.top <= 0.01 && m.bot >= -0.01 && m.s >= 0.05) && sr.marks[0].moved > 0.3 && sr.marks[2].moved === 0 && sr.marks[3].s < 1, sr.marks);
+  // the loudness: each mix a ship asks for, rendered offline (the master at the default 0.8), RMS in dB
+  const lv = await page.evaluate(async () => {
+    const SR = 44100, N = SR * 3, out = {};
+    const mk = () => { const off = new OfflineAudioContext(1, N, SR), RealAC = window.AudioContext; window.AudioContext = function () { return off; }; Sound.ctx = null; Sound.unlock(); window.AudioContext = RealAC;
+      Sound.master.gain.cancelScheduledValues(0); Sound.master.gain.value = 0.8; Sound._sea = null; Sound.aims = {}; return off; };
+    const loop = async (name, f) => { const off = mk(); f(); const d = (await off.startRendering()).getChannelData(0); let s = 0, pk = 0; for (let i = SR; i < d.length; i++) { s += d[i] * d[i]; pk = Math.max(pk, Math.abs(d[i])); } out[name] = { db: +(20 * Math.log10(Math.sqrt(s / (d.length - SR)))).toFixed(1), pk: +pk.toFixed(2) }; };
+    await loop('tank', () => Sound.engine(1, 1));
+    await loop('arley', () => Sound.sea({ turbine: 1, rpm: 1, hiss: 1, size: 1 }));
+    await loop('cyclon', () => Sound.sea({ diesel: 1, rpm: 1, hiss: 1, size: 0.5 }));
+    await loop('zodiak', () => Sound.sea({ petrol: 1, rpm: 1, hiss: 1, size: 0.08 }));
+    await loop('ciws', () => Sound.sea({ ciws: 1 }));
+    await loop('arleyCiws', () => Sound.sea({ turbine: 1, rpm: 1, hiss: 1, ciws: 1, size: 1 }));
+    await loop('every', () => Sound.sea({ diesel: 1, turbine: 1, rpm: 1, hiss: 1, gurgle: 1, ciws: 1, size: 1 }));
+    Sound.ctx = null; Sound._sea = null;
+    return out;
+  });
+  ok(`[WP12] her sounds as loud as the game's others: a destroyer at flank ${lv.arley.db} dB, a Cyclon ${lv.cyclon.db}, a RIB ${lv.zodiak.db}, a close-in gun ${lv.ciws.db}, a tank at full ${lv.tank.db} (no clipping: ${lv.arleyCiws.pk} with her gun firing, ${lv.every.pk} every loop at once)`,
+    lv.arley.db >= lv.tank.db - 3 && lv.cyclon.db >= lv.tank.db - 4 && lv.zodiak.db >= lv.tank.db - 8 && lv.zodiak.db < lv.arley.db && lv.ciws.db >= lv.tank.db - 3 && lv.arleyCiws.pk < 1 && lv.every.pk < 1, lv);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+ok('no console errors', !errs.length, errs.slice(0, 6).join('\n'));
+await b.close(); srv.close();
+ok.done();

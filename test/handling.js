@@ -9,7 +9,7 @@ const ctx = G.load({ props: true }); // (every prop built: none on these paths, 
 const only = argv[0] && argv[0] !== 'all' ? argv[0].split(',') : null;
 const SAS = argv[1] || 'hold';
 const D = 180 / Math.PI, dt = 1 / 120;
-const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane' && (!only || only.includes(k)));
+const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane' && ctx.TEMPLATES[k].group !== 'ship' && (!only || only.includes(k))); // (not the ships update's flying boat: ships.test's)
 const f0 = (x) => (Number.isFinite(x) ? Math.round(x) : '-');
 function air(key, V, alt = 2000) {
   const v = G.craft(ctx, ctx.TEMPLATES[key].parts, 'plane'), s = G.sim();

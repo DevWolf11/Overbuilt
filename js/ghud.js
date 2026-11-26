@@ -38,6 +38,7 @@ const GHUD = (() => {
   function aimUpdate(F, now) {
     const v = F.active, A = F.aim, D = F.aimDir;
     if (!v || !A || !D) return;
+    if (F.zero > 3000 || F.zero < 200) { const L = zeroLim(v); if (F.zero > L[1] || F.zero < L[0]) F.zero = clamp(F.zero, L[0], L[1]); } // ([WP9] a ship's long or short zero never carries into another craft's sight)
     A.dir.x = D.x; A.dir.y = D.y; A.dir.z = D.z;
     const r = Render3D.aimRay(RAY), E = S.eye;
     if (E.f === Render3D.frameNo) { A.o.x = E.x; A.o.y = E.y; A.o.z = E.z; }
@@ -55,9 +56,25 @@ const GHUD = (() => {
   }
   // (Flight.keepAimPoint) the view now looks out from E: the camera still where the last frame drew it
   function holdEye(E) { const h = S.eye; h.x = E.x; h.y = E.y; h.z = E.z; h.f = Render3D.frameNo; }
+  // [WP9] How far the aim ray reaches for v (m): SHIP.AIM.ray (20 km) for a sea kind or any craft carrying a naval gun (a
+  // TK-34 with a 127 mm too), 3 km for everything else (as ever); and the sight's zero within [lo, hi], in 100 m steps
+  // to 3 km and 500 m beyond (zeroStep)
+  function reach(v) {
+    if (!v || !v.parts || typeof SHIP === 'undefined') return 3000;
+    if (v._reachN !== v.parts.length) { v._reachN = v.parts.length; v._reach = isSea(v.kind) || v.parts.some((p) => p.def.weapon && p.def.weapon.naval) ? SHIP.AIM.ray : 3000; }
+    return v._reach;
+  }
+  const zeroLim = (v) => (reach(v) > 3000 ? SHIP.AIM.zero : [200, 3000]);
+  function zeroStep(F, up, wrap) {
+    const L = zeroLim(F.active), z = F.zero || 800;
+    if (L[1] <= 3000) { F.zero = wrap ? (z >= 3000 ? 200 : z + 100) : clamp(z + (up ? 100 : -100), 200, 3000); return; } // (as it always was)
+    if (wrap && up && z >= L[1]) { F.zero = L[0]; return; }
+    const n = up ? (z < 3000 ? Math.min(3000, z + 100) : (Math.floor(z / 500) + 1) * 500) : z > 3000 ? Math.max(3000, (Math.ceil(z / 500) - 1) * 500) : z - 100;
+    F.zero = clamp(n, L[0], L[1]);
+  }
   function look(F, v, A) {
-    const o = A.o, d = A.dir, b = v.body, R = b.radius;
-    let best = 3000, hitV = null, Px = 0, Py = 0, Pz = 0;
+    const o = A.o, d = A.dir, b = v.body, R = b.radius, far = reach(v); // ([WP9] 20 km for a ship's guns)
+    let best = far, hitV = null, Px = 0, Py = 0, Pz = 0;
     // 1. vessels and wrecks within 3 km, as they are drawn (a far one is drawn raised or lowered: Render3D.reseatOf)
     for (const w of F.vessels) {
       if (w === v || w.dead || !w.parts.length || w.body !== b || w.isDebris) continue;
@@ -84,7 +101,7 @@ const GHUD = (() => {
       return LOC.r - R - Math.max(sea, Terrain.surfaceAt(b, LOC.a, LOC.z));
     };
     let gs = -1;
-    for (let s = 25, prev = 0; s <= best + 25; prev = s, s += 25) {
+    for (let s = 25, prev = 0; s <= best + 25; prev = s, s += s < 3000 || far <= 3000 ? 25 : 100) { // ([WP9] past 3 km, 100 m a step on a ship; every other craft's steps as ever)
       if (gap(Math.min(s, best)) >= 0) continue;
       let lo = prev, hi = Math.min(s, best);
       for (let i = 0; i < 6; i++) { const m = (lo + hi) / 2; if (real(m) < 0) hi = m; else lo = m; }
@@ -97,9 +114,13 @@ const GHUD = (() => {
     else if (gs >= 0 && gs < best) { best = gs; hitV = null; A.src = 'ground'; }
     else A.src = hitV ? 'vessel' : 'none';
     A.v = hitV;
+    if (far > 3000 && !hitV && typeof Ship !== 'undefined') { // ([WP9] a ship's guns: the surface contact (radar or eyes) under the crosshair, past the horizon too)
+      const c = Ship.contactOn(v, F, o, d, 1, far);
+      if (c) { const P = c.def ? Combat.targetCentre(c) : c; Px = P.x; Py = P.y; Pz = P.z; best = Math.hypot(Px - o.x, Py - o.y, Pz - o.z); hitV = c.def ? null : c; A.v = hitV; A.src = 'vessel'; }
+    }
     if (A.src === 'none') best = 1500;
     A.d = best;
-    if (hitV) { A.P.x = Px; A.P.y = Py; A.P.z = Pz; } else { A.P.x = o.x + d.x * best; A.P.y = o.y + d.y * best; A.P.z = o.z + d.z * best; }
+    if (hitV || A.src === 'vessel') { A.P.x = Px; A.P.y = Py; A.P.z = Pz; } else { A.P.x = o.x + d.x * best; A.P.y = o.y + d.y * best; A.P.z = o.z + d.z * best; }
     blocked(v, A);
   }
   // Where the chosen gun's round meets the ground short of the crosshair's point: the barrel sits lower than the camera,
@@ -175,6 +196,7 @@ const GHUD = (() => {
     rangeText(ctx, F, v, cx, cy);
     if (st) weaponMarks(ctx, F, v, st, pr, cx, cy);
     hits(ctx, F, v, cx, cy, W, H, t);
+    if (Combat.S.sea) { drawTorps(ctx, F, v); seaBanner(ctx, cx, cy, t, W, H); } // [WP12] (torpedoes in the water; a ship's fate as we doomed her)
     if (st) fireRing(ctx, st);
     if (!F.sight) diagram(ctx, F, v);
     if (st && st.scope && !F.sight) scope(ctx, F, v, st);
@@ -249,7 +271,7 @@ const GHUD = (() => {
   // the range the sight can be set to: the rangefinder's, else the commander's reading (null: none yet)
   const readRange = (F, v) => { const P = F.aim.P, D = Math.hypot(P.x - v.x, P.y - v.y, P.z - v.z); return lrf(v) ? D : Aim.realistic() ? cmdRange(F, v, D) : null; };
   const fmtR = (d) => `${Math.round(d / 10) * 10 >= 1000 ? (Math.round(d / 10) * 10).toLocaleString('en-US') : Math.round(d / 10) * 10} m`;
-  const lrf = (v) => { if (v._lrfN !== v.parts.length) { v._lrfN = v.parts.length; v._lrf = v.parts.find((p) => p.def.lrf) || null; } return !!v._lrf && !v._lrf.broken; };
+  const lrf = (v) => { if (v._lrfN !== v.parts.length) { v._lrfN = v.parts.length; v._lrf = v.parts.find((p) => p.def.lrf || (p.def.trackRadar && p.def.trackRadar.sea)) || null; } return !!v._lrf && !v._lrf.broken; }; // ([WP9] a ship's fire-control radar ranges her guns)
   // text with a dark rim (Combat's hudText), counted as two calls
   function text(ctx, t, x, y) {
     ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(8, 11, 16, 0.6)'; ctx.strokeText(t, x, y);
@@ -356,12 +378,13 @@ const GHUD = (() => {
     if (sh && Aim.realistic()) { // (each range's drop against the zero's: how far under the chevron to put the target)
       const z0 = Aim.solve(sh.key, F.zero, 0, v.body), e0 = z0 ? z0.el : 0;
       ctx.beginPath();
-      for (let d = 200; d <= 3000; d += 100) {
+      const top = zeroLim(v)[1]; // ([WP9] a naval gun's to 20 km: 500 m ticks past 3 km)
+      for (let d = 200; d <= top; d += d < 3000 ? 100 : 500) {
         const o = Aim.solve(sh.key, d, 0, v.body);
         if (!o) break;
         const y = cy + (o.el - e0) * px;
         if (y > H - 20) break;
-        const big = d % 400 === 0;
+        const big = d < 3000 ? d % 400 === 0 : d % 2000 === 0;
         ctx.moveTo(cx + 26, y); ctx.lineTo(cx + (big ? 38 : 32), y);
         if (big) ctx.fillText(String(d / 100), cx + 42, y + 4);
       }
@@ -470,7 +493,10 @@ const GHUD = (() => {
       if (p.def.weapon && p.def.aim && p.def.weapon.kind !== 'smoke') { const q = Aim.localTrunnion(v, p, A2), u = Aim.localDir(v, p, BD), L = barrel(p); for (const s of [0, L]) { x0 = Math.min(x0, q.x + u.x * s); x1 = Math.max(x1, q.x + u.x * s); } continue; }
       const hw = p.def.w / 2, Z = partZ(p), hd = (p.def.depth || p.def.w) / 2; x0 = Math.min(x0, p.x - hw); x1 = Math.max(x1, p.x + hw); z0 = Math.min(z0, Z - hd); z1 = Math.max(z1, Z + hd);
     }
-    const small = P.w < 110, areaW = P.w * (small ? 0.5 : 0.55), k = Math.min((P.h - 10) / Math.max(x1 - x0, 1), (areaW - 8) / Math.max(z1 - z0, 1)), ox = areaW / 2 + 2, oy = P.h / 2;
+    const small = P.w < 110, sea = isSea(v.kind); // ([WP12] a ship: her long, thin plan takes the width it needs, the words the rest: "CREW 13/13" was cut to "CREW 13/")
+    let areaW = P.w * (small ? 0.5 : 0.55), k = Math.min((P.h - 10) / Math.max(x1 - x0, 1), (areaW - 8) / Math.max(z1 - z0, 1));
+    if (sea) areaW = clamp((z1 - z0) * k + 14, P.w * 0.22, areaW);
+    const ox = areaW / 2 + 2, oy = P.h / 2;
     const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, X = (z) => ox + (z - mz) * k, Y = (x) => oy - (x - mx) * k;
     const now = performance.now();
     const colOf = (p, base) => { const hp = Combat.hpFrac(p); if (p.fire > 0) return Math.floor(now / 250) % 2 ? '#ff8a2a' : '#ffd23f'; if (p.broken) return '#ff5d5d'; if (p.def.module && hp < 0.5) return '#ffb547'; return base; };
@@ -515,7 +541,7 @@ const GHUD = (() => {
     g.textAlign = 'left'; g.font = `600 ${small ? 9 : 10}px "IBM Plex Mono", ui-monospace, monospace`; // (CREW 4/4 fits the small one)
     const tx = areaW + 4, all = Math.max(crew.length, v._crewN || 0); // (against the crew it set out with; none: no line, as on a technical)
     g.fillStyle = alive < all ? '#ffb547' : '#c9d3de';
-    if (all) g.fillText(`CREW ${alive}/${all}`, tx, 15);
+    if (all) { if (sea) g.fillText(`CREW ${alive}/${all}`, tx, 15, P.w - tx - 3); else g.fillText(`CREW ${alive}/${all}`, tx, 15); } // ([WP12] a ship's crew: never past the box)
     let y = 28;
     const seen = new Set();
     for (const p of v.parts) {
@@ -525,12 +551,108 @@ const GHUD = (() => {
       if (!bad) continue;
       seen.add(m);
       g.fillStyle = p.fire > 0 ? '#ff8a2a' : p.broken ? '#ff5d5d' : '#ffb547';
-      g.fillText((p.fire > 0 ? 'FIRE ' : '') + (WHAT[(m === 'breech' ? 'GUN' : m.toUpperCase())] || m).toUpperCase(), tx, y);
+      const t = (p.fire > 0 ? 'FIRE ' : '') + (WHAT[(m === 'breech' ? 'GUN' : m.toUpperCase())] || m).toUpperCase();
+      if (sea) g.fillText(t, tx, y, P.w - tx - 3); else g.fillText(t, tx, y); // ([WP12] a ship's: never past the box)
       y += 12;
     }
   }
   const barrel = (p) => p.def.h * (1 - (p.def.aim && p.def.aim.pivot != null ? p.def.aim.pivot : 0.5)); // (trunnion to muzzle, m)
   function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+
+  // ---------------------------------------------------------------- [WP12] torpedoes in the water (spec §12.1)
+  // Ours: each one's predicted run on the sea, solid, from where it is (to the ship it homes on; else along the heading
+  // its gyro turns it to, or its own) for what is left of its run, SHIP.HUD.torpRun m at most; one still falling from a
+  // plane from where it will meet the water. A hostile one seen within SHIP.HUD.torpSee m of us (its bubbles): its track
+  // ahead, SHIP.HUD.track m, dashed red, a ring where it is. Points on the sea's surface every 100 m (a 6 m deep
+  // torpedo is seen by its wake; 3 km of the sea curves down 14 m at this scale); a point behind the camera ends a line.
+  const TQ = v3(), TP = v3();
+  function drawTorps(ctx, F, v) {
+    const L = Combat.S.shots, b = v.body, HU = SHIP.HUD;
+    let any = false;
+    for (const s of L) if (!s.dead && (s.k === 'stor' || s.k === 'torp') && s.b === b) { any = true; break; }
+    if (!any || typeof Ship === 'undefined') return;
+    const R = b.radius;
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    // a line from P along unit direction D (sim), n metres, on the sea's surface: projected a point every 100 m
+    const run = (P, D, n, col, dash, w) => {
+      ctx.beginPath(); ctx.setLineDash(dash || []); ctx.strokeStyle = col; ctx.lineWidth = w;
+      let on = false;
+      for (let s = 0; s <= n + 1e-6; s += Math.min(100, Math.max(1, n - s)) || 100) {
+        const x = P.x + D.x * s, y = P.y + D.y * s, z = P.z + D.z * s, r = Math.hypot(x, y, z) || 1, q = pr((x * R) / r, (y * R) / r, (z * R) / r);
+        if (q.behind) { if (on) break; continue; }
+        if (on) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y);
+        on = true;
+        if (s >= n) break;
+      }
+      ctx.stroke();
+    };
+    for (const s of L) {
+      if (s.dead || (s.k !== 'stor' && s.k !== 'torp') || s.b !== b) continue;
+      const mine = s.owner === v || (s.owner && Combat.byMe && Combat.byMe(s.owner, F));
+      const d = Math.hypot(s.x - v.x, s.y - v.y, s.z - v.z), hostile = !mine && (s.owner && s.owner.parts ? Ship.foe(v, s.owner) : !!s.enemy);
+      if (!mine && !(hostile && d < HU.torpSee)) continue;
+      // its way now on the sea (a falling one: its way over the ground), and where it is
+      let dx = s.dx, dy = s.dy, dz = s.dz;
+      if (s.k === 'stor' && s.ph === 'air') { dx = s.vx; dy = s.vy; dz = s.vz; }
+      const r = Math.hypot(s.x, s.y, s.z) || 1, ux = s.x / r, uy = s.y / r, uz = s.z / r, k = dx * ux + dy * uy + dz * uz;
+      dx -= ux * k; dy -= uy * k; dz -= uz * k;
+      let l = Math.hypot(dx, dy, dz);
+      if (!(l > 1e-6)) continue;
+      TQ.x = dx / l; TQ.y = dy / l; TQ.z = dz / l;
+      if (mine) {
+        let n = Math.min(HU.torpRun, s.k === 'stor' && Number.isFinite(s.range) ? s.range - (s.run || 0) : HU.torpRun);
+        const t = s.k === 'stor' && s.tgt && !s.tgt.dead && Number.isFinite(s.tgt.x) ? s.tgt : null;
+        if (t) { TP.x = t.x - s.x; TP.y = t.y - s.y; TP.z = t.z - s.z; const kk = TP.x * ux + TP.y * uy + TP.z * uz; TP.x -= ux * kk; TP.y -= uy * kk; TP.z -= uz * kk; l = Math.hypot(TP.x, TP.y, TP.z); if (l > 1) { n = Math.min(n, l); TQ.x = TP.x / l; TQ.y = TP.y / l; TQ.z = TP.z / l; } }
+        else if (s.k === 'stor' && s.gyro && (s.t - (s.t0 || 0)) > 1) { const g = s.gyro, kk = g.x * ux + g.y * uy + g.z * uz; TP.x = g.x - ux * kk; TP.y = g.y - uy * kk; TP.z = g.z - uz * kk; l = Math.hypot(TP.x, TP.y, TP.z); if (l > 1e-6) { TQ.x = TP.x / l; TQ.y = TP.y / l; TQ.z = TP.z / l; } }
+        if (n > 5) { run(s, TQ, n, 'rgba(8, 11, 16, 0.5)', null, 3.5); run(s, TQ, n, t ? COL.ok : COL.friend, null, 1.6); }
+      } else {
+        run(s, TQ, HU.track, 'rgba(8, 11, 16, 0.45)', [7, 6], 3.2);
+        run(s, TQ, HU.track, COL.enemy, [7, 6], 1.6);
+        const r0 = Math.hypot(s.x, s.y, s.z) || 1, q = pr((s.x * R) / r0, (s.y * R) / r0, (s.z * R) / r0);
+        if (!q.behind) { ctx.setLineDash([]); ctx.strokeStyle = COL.enemy; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, TAU); ctx.stroke(); }
+      }
+    }
+    ctx.restore();
+  }
+  // A ship of theirs we doomed (ship.js doom: Death's banner, its fate's word: SUNK, CAPSIZED, OUT OF ACTION; SUNK again as
+  // she goes under): drawn here in aim mode too (the air HUD's banner isn't drawn over the ground HUD), where the
+  // knock-out's own line (Armour.fb.ko, "Sunk!") isn't showing, 74 px over the crosshair, fading in its last third of a
+  // second. Where something is there (the alert line, the tip, a control, the crew box or the scope, which the DOM's
+  // buttons cover or the canvas draws over it), the clear place nearest that: just under or over one of them, and up to
+  // 60 px aside, never on the cross and its range; the tip (a passing one) given up first. Looked for four times a second.
+  const SEA_WORDS = new Set(['SUNK', 'CAPSIZED', 'OUT OF ACTION']), SB = { t: -1, at: -1e9, x: 0, y: 0 };
+  function seaBanner(ctx, cx, cy, t, W, H) {
+    const fb = typeof Death !== 'undefined' && Death.fb, ko = Armour.fb.ko;
+    if (!fb || !SEA_WORDS.has(fb.text) || !(t >= fb.t && t - fb.t < fb.life) || (ko && t >= ko.t && t - ko.t < 2.2)) return;
+    ctx.save(); ctx.globalAlpha = clamp(3 * (fb.life - (t - fb.t)), 0, 1);
+    ctx.font = '700 20px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = fb.col || COL.enemy; ctx.textAlign = 'center';
+    const w = ctx.measureText(fb.text).width, now = performance.now();
+    if (SB.t !== fb.t || SB.w !== w || now - SB.at > 250) {
+      SB.t = fb.t; SB.w = w; SB.at = now;
+      const q = (s) => { const e = document.querySelector(s); if (!e || e.hidden) return null; const b = e.getBoundingClientRect(); return b.width > 0 ? b : null; };
+      const r = q('#flight-alert'), tip = q('#hint'), P = S.P, obs = r ? [r] : [], y0 = cy - 74, half = w / 2 + 6;
+      if (P && P.block) obs.push(...P.block);
+      if (P && P.scope) obs.push({ left: P.scope.x - P.scope.R, right: P.scope.x + P.scope.R, top: P.scope.y - P.scope.R, bottom: P.scope.y + P.scope.R + 14 });
+      obs.push({ left: cx - 60, right: cx + 60, top: cy - 24, bottom: cy + 36 });
+      const look = (obs) => {
+        const ok = (x, y) => y - 26 >= 4 && y + 6 <= H - 4 && x - half >= 4 && x + half <= W - 4 && !obs.some((o) => x + half > o.left && x - half < o.right && y + 6 > o.top && y - 26 < o.bottom);
+        const xs = [cx], ys = [y0, cy + 84];
+        for (const o of obs) { ys.push(Math.ceil(o.bottom) + 27, Math.floor(o.top) - 7); xs.push(Math.ceil(o.right) + half, Math.floor(o.left) - half); }
+        let best = null, bk = Infinity;
+        for (const x of xs) {
+          if (Math.abs(x - cx) > 60) continue;
+          for (const y of ys) { const k = Math.abs(y - y0) + 2 * Math.abs(x - cx); if (k < bk && ok(x, y)) { best = [x, y]; bk = k; } }
+        }
+        return best;
+      };
+      const at = (tip && look([...obs, tip])) || look(obs);
+      if (at) { SB.x = at[0]; SB.y = at[1]; }
+      else { SB.x = cx; SB.y = r && cx + half > r.left && cx - half < r.right && y0 + 6 > r.top && y0 - 26 < r.bottom ? cy + 84 : y0; } // (nowhere clear: clear of the alert line at least)
+    }
+    text(ctx, fb.text, SB.x, SB.y);
+    S.seaBan = { text: fb.text, l: SB.x - w / 2, r: SB.x + w / 2, t: SB.y - 20, b: SB.y + 5, at: t }; // (where it went: the tests')
+    ctx.restore();
+  }
 
   // ---------------------------------------------------------------- an SPAA's search radar scope
   function scope(ctx, F, v, st) {
@@ -564,12 +686,12 @@ const GHUD = (() => {
     const M = mp() && typeof MPUI !== 'undefined' && MPUI.scope, mk = M ? M.x + M.y * 1e4 : 0; // (a room's own scope, on wide screens: placed again as it comes)
     if (S.P && now - S.placeAt < 1000 && S.W === W && S.H === H && S.sight === !!F.sight && S.mk === mk) return S.P;
     S.placeAt = now; S.W = W; S.H = H; S.sight = !!F.sight; S.mk = mk;
-    const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar'), tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
+    const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar') || rect('#naval-bar'), /* [WP10] the Naval Range's bar */ tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
     const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + (Combat.S.rwrBox.lines === 2 ? 28 : 14) } : null;
     const ms = M ? { left: M.x - M.R, right: M.x + M.R, top: M.y - M.R, bottom: M.y + M.R + 4 } : null;
     // (and the controls one by one: a custom layout may have moved them out of their column, controls.js)
     const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), rect('#flight-ui .stage-box'), rect('#flight-ui .throttle-box'), fire,
-      rect('#joy'), rect('#key-hints'), rect('#btn-drone')].filter(Boolean); // (the big update: a bay's DRONE button)
+      rect('#joy'), rect('#key-hints'), rect('#btn-drone'), rect('#btn-shold'), rect('#btn-sdc'), rect('#btn-sciws')].filter(Boolean); // (the big update: a bay's DRONE button; [WP12] a ship's HOLD, DC and CIWS)
     const hit = (a) => block.some((b) => a.x < b.right && a.x + a.w > b.left && a.y < b.bottom && a.y + a.h > b.top) || a.x < 4 || a.y < 4 || a.x + a.w > W - 4 || a.y + a.h > H - 4;
     const small = W < 380 || H < 700, land = H < 500, dw = small ? 104 : 120, dh = small ? 62 : 72, Tb = T ? T.bottom : 80, Tl = T ? T.left : 12, Tr = T ? T.right : 200;
     const tries = [[Tl, Tb + 8], ...(ms ? [[Tl, ms.bottom + 8]] : []), [Tr + 8, T ? T.top : 12], [Tl, Tb + 8 + 60], [lc ? lc.right + 10 : 140, lc ? lc.top : H - 200]];
@@ -579,12 +701,16 @@ const GHUD = (() => {
     block.push({ left: diag.x, right: diag.x + diag.w, top: diag.y, bottom: diag.y + dh + 18 });
     const R0 = land ? 40 : W < 500 ? 40 : 46;
     let scope = null;
-    const spots = [[Tl + R0, diag.y + dh + 30 + R0, R0], [diag.x + diag.w + 14 + R0, diag.y + R0, R0], ...(ms ? [[ms.right + 14 + R0, ms.top + R0, R0]] : []), [Tr + 14 + R0, (T ? T.top : 12) + R0, R0], [Tl + 30, diag.y + dh + 50, 30]];
+    // ([WP12] a ship's: a smaller scope under the crew box before the place beside it, so with her HOLD, DC and CIWS standing
+    // higher at a big UI size the scope keeps under the crew box and the alert line its place beside it, clear of her hull
+    // diagram)
+    const ship = !!F.active && typeof isSea === 'function' && isSea(F.active.kind);
+    const spots = [[Tl + R0, diag.y + dh + 30 + R0, R0], ...(ship ? [[Tl + 30, diag.y + dh + 50, 30]] : []), [diag.x + diag.w + 14 + R0, diag.y + R0, R0], ...(ms ? [[ms.right + 14 + R0, ms.top + R0, R0]] : []), [Tr + 14 + R0, (T ? T.top : 12) + R0, R0], [Tl + 30, diag.y + dh + 50, 30]];
     for (const [x, y, R] of spots) {
       const a = { x: x - R, y: y - R, w: 2 * R, h: 2 * R + 14 };
       if (!hit(a)) { scope = { x, y, R }; break; }
     }
-    S.P = { diag, scope, fire: fire ? { x: (fire.left + fire.right) / 2, y: (fire.top + fire.bottom) / 2, r: fire.width / 2 } : null };
+    S.P = { diag, scope, fire: fire ? { x: (fire.left + fire.right) / 2, y: (fire.top + fire.bottom) / 2, r: fire.width / 2 } : null, block }; // ([WP12] block: what a ship's fate word keeps clear of)
     // the minimap's backing store, and where the hint goes under it
     const map = $('#gmap');
     if (map && gm) {
@@ -645,8 +771,15 @@ const GHUD = (() => {
   function arenaBox(v) {
     if (!EARTH.arenas || v.body !== EARTH) return null;
     const p = eZ(v);
-    for (const k in EARTH.arenas) { const A = EARTH.arenas[k], B = A.box; if (B && (A.clear ? EARTH.mapped : true) && p.e > B.e0 - 1500 && p.e < B.e1 + 1500 && p.z > B.z0 - 1500 && p.z < B.z1 + 1500) return B; }
+    for (const k in EARTH.arenas) { const A = EARTH.arenas[k], B = A.box; if (B && (A.sea ? seaArena(k) : A.clear ? EARTH.mapped : true) && p.e > B.e0 - 1500 && p.e < B.e1 + 1500 && p.z > B.z0 - 1500 && p.z < B.z1 + 1500) return B; }
     return null;
+  }
+  // [WP11] a sea arena (the Sound) frames the map only in a battle fought on it (a naval battle's room, the Naval Practice
+  // battle: Ship.battle); anywhere else its water is just the sea, so old play's map is as it was
+  function seaArena(k) {
+    if (!EARTH.mapped) return false;
+    if (typeof MP !== 'undefined' && MP.live && MP.naval) return MP.state.settings.arena === k;
+    return typeof Ship !== 'undefined' && !!Ship.battle && Ship.battle.arena === k;
   }
   function units(F, v) { // [x e, z, kind: 0 us, 1 friend, 2 enemy, 3 wreck, yaw]
     const out = [];
@@ -903,8 +1036,9 @@ const GHUD = (() => {
         : 'No rangefinder aboard: set the sight with PgUp / PgDn, or the wheel on its range ladder (right)');
       return;
     }
-    F.zero = clamp(Math.round(d / 50) * 50, 200, 3000);
-    F.toast(`Sight set to ${F.zero} m`); Sound.click();
+    const L = zeroLim(v); // ([WP9] to 20 km on a ship)
+    F.zero = clamp(Math.round(d / 50) * 50, L[0], L[1]);
+    F.toast(`Sight set to ${F.zero > 9999 ? F.zero.toLocaleString('en-US') : F.zero} m`); Sound.click();
   }
   // In the sight the wheel steps its zoom, or (Realistic aim, the pointer free at the right edge) the range ladder 100 m.
   // Under the pointer lock clientX stands where the lock began, so it is never the ladder there (PgUp / PgDn are). A
@@ -917,7 +1051,7 @@ const GHUD = (() => {
     S.whT = e.timeStamp; S.wh += dy;
     if (Math.abs(S.wh) < 40) return true;
     const up = S.wh < 0; S.wh = 0;
-    if (Aim.realistic() && !F._locked && e.clientX > innerWidth * 0.82) { F.zero = clamp(F.zero + (up ? 100 : -100), 200, 3000); F.updateHUD(true); return true; } // (the range ladder)
+    if (Aim.realistic() && !F._locked && e.clientX > innerWidth * 0.82) { zeroStep(F, up); F.updateHUD(true); return true; } // (the range ladder; [WP9] 500 m steps past 3 km on a ship)
     const Z = [3, 6, 8], i = Z.indexOf(F.zoom), j = clamp((i < 0 ? 0 : i) + (up ? 1 : -1), 0, 2);
     if (Z[j] !== F.zoom) F.setSight(true, Z[j]);
     return true;
@@ -939,7 +1073,7 @@ const GHUD = (() => {
       if (!v) return;
       // (the commander's reading the first tap, if the sight isn't on it already; after that, 100 m steps)
       const c = !lrf(v) && F.aim ? readRange(F, v) : null;
-      if (lrf(v) || (c != null && clamp(Math.round(c / 50) * 50, 200, 3000) !== F.zero)) zeroKey(F); else { F.zero = F.zero >= 3000 ? 200 : F.zero + 100; F.updateHUD(true); }
+      if (lrf(v) || (c != null && clamp(Math.round(c / 50) * 50, 200, 3000) !== F.zero)) zeroKey(F); else { zeroStep(F, true, true); F.updateHUD(true); } // ([WP9] round to the first again past the last)
     });
     // the shell chips: a tap loads that round next; held 0.5 s, it comes out of the breech and that one goes in now.
     // Which it was is told on release by the events' own times (a frame that stalls between the finger going down and
@@ -990,6 +1124,8 @@ const GHUD = (() => {
     draw, frame,
     place: (W, H) => place(W, H, typeof Flight !== 'undefined' ? Flight : {}),
     aimUpdate, holdEye, sync, bind, tactical, wheel, press, dragged, spot, zeroKey, team: myTeam, resultText, // (a drone's impact view prints the shot's result as the sight does)
+    reach, zeroStep, // ([WP9] the aim ray's reach and the sight's zero: 20 km on a ship)
+    drawTorps, // ([WP12] torpedoes in the water: the tests draw them)
     get tacOpen() { return !!S.tacOpen; },
     set redrawDiagram(on) { if (on) S.diagKey = ''; },
     _S: S, // (the tests read where things went)

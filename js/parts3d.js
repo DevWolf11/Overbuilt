@@ -71,6 +71,13 @@ const Parts3D = (() => {
     led: { basic: '#7dffb0' },
     red: { color: '#c23b2c', roughness: 0.8, metalness: 0.05 },
     lens: { color: '#3a0d14', roughness: 0.06, metalness: 0.55, env: 1.5 },
+    // the ships update's: a hull's loft in its colours (paint, boot-top, antifouling, deck), or a camouflage over them; a
+    // rudder's antifouling red
+    shipHull: { vertexColors: true, roughness: 0.62, metalness: 0.18 },
+    shipHullCamo: { vertexColors: true, roughness: 0.62, metalness: 0.18, camo: true },
+    antifoul: { color: '#7a2a22', roughness: 0.8, metalness: 0.05 },
+    shipGrey: { color: SH_HAZE, roughness: 0.7, metalness: 0.2 }, // [WP5] (masts and struts in haze grey, or their paint)
+    ribTube: { color: '#3b4046', roughness: 0.85, metalness: 0.02 }, // [WP5] (a RIB's hypalon tubes)
   };
   const LATHE = LATHE_SHAPES; // (parts.js: the clash test shapes parts the way these recipes build them)
   const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep', tcast: 'plate', tring: 'plate', radarset: 'metal' };
@@ -78,8 +85,8 @@ const Parts3D = (() => {
   // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
   // geometry, so theirs is made per skin.
-  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric', 'skidTube', 'us4frame', 'armour']);
-  const SKIN_GEO = new Set(['wing', 'biplane']);
+  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric', 'skidTube', 'us4frame', 'armour', 'shipGrey']);
+  const SKIN_GEO = new Set(['wing', 'biplane', 'shipHull']); // (a ship's hull: its paint in its vertex colours, by its bands)
   // Models that aren't the same both sides (a tail rotor's stub, a drone's aerial, the bubble's pilot, a
   // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
   // turns the other way, as in the physics.
@@ -764,6 +771,283 @@ const Parts3D = (() => {
     return t;
   }
 
+  // ------------------------------------------------------------------ the ships update's hulls and kit [WP2]
+  // A hull segment's loft (parts.js shullOf: the very rings that are its 2D outline, its clash shape, where it is hit and
+  // what floats): two triangles per ring edge between neighbouring rings, the deck the ring's top edge, each end closed by
+  // a fan (a transom or the stem's last section; a joint's end too, so the hull is a closed solid and the flat water
+  // never shows inside it). Normals smooth round the bilge and along the hull, hard at a chine, the keel of a V and the
+  // deck edge (a ring corner turning more than 40°: parts.js's SHULL_CREASE). Coloured by height against the design waterline, the triangles cut
+  // at the boot-top's edges so its bands are sharp: the paint above, the boot-top black round the waterline, antifouling
+  // red under it, the deck in deck grey. No texture (a camouflage: its pattern laid on in metres, vcCamo).
+  function shipHullGeo(d, S) {
+    const H = shullOf(d), R = H.rings, bt = shullBand(d), lo = H.wl - bt / 2, hi = H.wl + bt / 2, camo = !!(S && S.camo);
+    const C = { paint: camo ? [1, 1, 1] : lin(S ? S.base : SH_HAZE), deck: lin(SH_DECK).map((c) => c * 0.8), boot: lin(SH_BOOT), red: lin(SH_RED) };
+    // [WP8] the vertices and triangles are the hull's hit shape (parts.js shullTris: each ring's corners, two where it
+    // creases; K quads between neighbouring rings, the deck strip among them; a fan closing each end), in its order;
+    // each vertex's normal the sum of the raw normals of the faces round it (faces [a, b, c, deck])
+    const TR = shullTris(d), pos = TR.pos, acc = new Float64Array(pos.length), faces = [];
+    for (let f = 0, m = TR.code.length; f < m; f++) {
+      const a = TR.tri[3 * f], b = TR.tri[3 * f + 1], c = TR.tri[3 * f + 2], nx = TR.nrm[3 * f], ny = TR.nrm[3 * f + 1], nz = TR.nrm[3 * f + 2];
+      for (const q of [a, b, c]) { acc[q * 3] += nx; acc[q * 3 + 1] += ny; acc[q * 3 + 2] += nz; }
+      faces.push([a, b, c, TR.code[f] === -6]);
+    }
+    // the triangles cut at the boot-top's edges, each piece in its band's colour (the deck in its own)
+    const P = [], N = [], Col = [], U = camo ? [] : null, T = CAMO_M;
+    const nrm = (q) => { const x = acc[q * 3], y = acc[q * 3 + 1], z = acc[q * 3 + 2], L = Math.hypot(x, y, z) || 1; return [x / L, y / L, z / L]; };
+    const cut = (poly, y0, keepAbove) => { // Sutherland-Hodgman against the level y0: [{ p: [x, y, z], n }]
+      const out = [];
+      for (let k = 0; k < poly.length; k++) {
+        const a = poly[k], b = poly[(k + 1) % poly.length], ia = keepAbove ? a.p[1] >= y0 : a.p[1] <= y0, ib = keepAbove ? b.p[1] >= y0 : b.p[1] <= y0;
+        if (ia) out.push(a);
+        if (ia !== ib) { const t = (y0 - a.p[1]) / (b.p[1] - a.p[1]), L = (u, v) => u.map((q, m) => q + (v[m] - q) * t); out.push({ p: L(a.p, b.p), n: L(a.n, b.n) }); }
+      }
+      return out;
+    };
+    let ytop = -Infinity, ybot = Infinity;
+    for (const r of R) { ytop = Math.max(ytop, r.yd); ybot = Math.min(ybot, r.yk); }
+    const emit = (poly, col, shade) => { // (shade: the topsides a little lighter up to the deck edge, the bottom a little darker to the keel)
+      for (let k = 1; k + 1 < poly.length; k++) for (const q of [poly[0], poly[k], poly[k + 1]]) {
+        const y = q.p[1], f = shade > 0 ? 0.9 + 0.14 * clamp((y - hi) / Math.max(0.1, ytop - hi), 0, 1) : shade < 0 ? 0.82 + 0.18 * clamp((y - ybot) / Math.max(0.1, lo - ybot), 0, 1) : 1;
+        P.push(q.p[0], y, q.p[2]); N.push(...q.n); Col.push(col[0] * f, col[1] * f, col[2] * f);
+        if (U) U.push(q.p[0] / T, (q.p[1] + Math.abs(q.p[2])) / T);
+      }
+    };
+    // [WP5] a paint's slanted band on a closed bow (patrol white's red and blue stripe: shStripe), cut out of the topsides
+    // by the same clipping, along f(p) = x − k·y
+    const SP = !camo && S && S.band ? shStripe(d) : null, fcut = (poly, c0, keepAbove) => { // (cut() along f instead of y)
+      const out = [], f = (q) => q.p[0] - SP.k * q.p[1];
+      for (let k = 0; k < poly.length; k++) {
+        const a = poly[k], b = poly[(k + 1) % poly.length], ia = keepAbove ? f(a) >= c0 : f(a) <= c0, ib = keepAbove ? f(b) >= c0 : f(b) <= c0;
+        if (ia) out.push(a);
+        if (ia !== ib) { const t = (c0 - f(a)) / (f(b) - f(a)), L = (u, v) => u.map((q, m) => q + (v[m] - q) * t); out.push({ p: L(a.p, b.p), n: L(a.n, b.n) }); }
+      }
+      return out;
+    };
+    const paintEmit = (poly) => {
+      if (!SP) { emit(poly, C.paint, 1); return; }
+      let rest = poly;
+      for (const [c0, c1, col] of [...SP.bands].sort((a, b) => a[0] - b[0])) { emit(fcut(rest, c0, false), C.paint, 1); const mid = fcut(rest, c0, true); emit(fcut(mid, c1, false), lin(S.band[col]), 1); rest = fcut(mid, c1, true); }
+      emit(rest, C.paint, 1);
+    };
+    for (const [a, b, c, deck] of faces) {
+      const poly = [a, b, c].map((q) => ({ p: [pos[q * 3], pos[q * 3 + 1], pos[q * 3 + 2]], n: nrm(q) }));
+      if (deck) { emit(poly, C.deck, 0); continue; }
+      let y0 = Infinity, y1 = -Infinity;
+      for (const q of poly) { y0 = Math.min(y0, q.p[1]); y1 = Math.max(y1, q.p[1]); }
+      if (y0 >= hi) { paintEmit(poly); continue; }
+      if (y1 <= lo) { emit(poly, C.red, -1); continue; }
+      paintEmit(cut(poly, hi, true)); emit(cut(poly, lo, false), C.red, -1); emit(cut(cut(poly, hi, false), lo, true), C.boot, 0);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(Col, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(U || new Array((P.length / 3) * 2).fill(0), 2));
+    return g;
+  }
+  // A prism of a convex outline in the x-z plane (pts [[x, z], ...]) from y0 to y1, closed at both ends
+  function prismY(pts, y0, y1) {
+    const pos = [], nor = [], idx = [], m = pts.length;
+    let cx = 0, cz = 0;
+    for (const [x, z] of pts) { cx += x / m; cz += z / m; }
+    for (let k = 0; k < m; k++) { // the walls, each edge its own quad (flat)
+      const [x0, z0] = pts[k], [x1, z1] = pts[(k + 1) % m], L = Math.hypot(x1 - x0, z1 - z0) || 1;
+      let nx = (z1 - z0) / L, nz = -(x1 - x0) / L;
+      if (nx * ((x0 + x1) / 2 - cx) + nz * ((z0 + z1) / 2 - cz) < 0) { nx = -nx; nz = -nz; }
+      const i0 = pos.length / 3;
+      pos.push(x0, y0, z0, x1, y0, z1, x1, y1, z1, x0, y1, z0);
+      for (let q = 0; q < 4; q++) nor.push(nx, 0, nz);
+      idx.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3);
+    }
+    for (const [y, s] of [[y0, -1], [y1, 1]]) {
+      const i0 = pos.length / 3;
+      for (const [x, z] of pts) { pos.push(x, y, z); nor.push(0, s, 0); }
+      for (let k = 1; k + 1 < m; k++) idx.push(i0, i0 + k, i0 + k + 1);
+    }
+    const g = geo(pos, nor, null, idx);
+    // (each triangle turned to face its normal)
+    const I = g.index.array, A = g.attributes.position.array, Nn = g.attributes.normal.array;
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t], b = I[t + 1], c = I[t + 2];
+      const ux = A[b * 3] - A[a * 3], uy = A[b * 3 + 1] - A[a * 3 + 1], uz = A[b * 3 + 2] - A[a * 3 + 2], vx = A[c * 3] - A[a * 3], vy = A[c * 3 + 1] - A[a * 3 + 1], vz = A[c * 3 + 2] - A[a * 3 + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      if (nx * Nn[a * 3] + ny * Nn[a * 3 + 1] + nz * Nn[a * 3 + 2] < 0) { I[t + 1] = c; I[t + 2] = b; }
+    }
+    return g;
+  }
+  // the slice's ship kit (BUILD.kit by style): the wheelhouse, the propeller and the rudder
+  function shipKit(d) {
+    const w = d.w, h = d.h, D = d.depth || w, st = d.style;
+    if (st === 'bridge') { // its raked outline's prism (its 2D art on every face) and glass over the windows
+      const pts = shBridgePts(d), list = [[plated(d, { pts, zh: D / 2 }), 'plate']], t = h / 2;
+      const zg = D / 2 + 0.006, y0 = t - h * 0.36, y1 = t - h * 0.1, x0 = -w / 2 + w * 0.22, x1 = w / 2 - w * 0.2;
+      const glass = [];
+      for (const s of [-1, 1]) glass.push(geo([x0, y0, s * zg, x1, y0, s * zg, x1, y1, s * zg, x0, y1, s * zg], [0, 0, s, 0, 0, s, 0, 0, s, 0, 0, s], null, s > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]));
+      const [fx0, fy0] = pts[2], [fx1, fy1] = pts[3], L = Math.hypot(fx1 - fx0, fy1 - fy0), nx = (fy1 - fy0) / L, ny = -(fx1 - fx0) / L;
+      const ga = 0.18, gb = 0.88, zf = D / 2 - D * 0.06, ax = fx0 + (fx1 - fx0) * ga + nx * 0.006, ay = fy0 + (fy1 - fy0) * ga + ny * 0.006, bx = fx0 + (fx1 - fx0) * gb + nx * 0.006, by = fy0 + (fy1 - fy0) * gb + ny * 0.006;
+      glass.push(geo([ax, ay, zf, bx, by, zf, bx, by, -zf, ax, ay, -zf], [nx, ny, 0, nx, ny, 0, nx, ny, 0, nx, ny, 0], null, [0, 2, 1, 0, 3, 2]));
+      list.push([merge(glass), 'glass']);
+      return node(list);
+    }
+    if (st === 'screw') { // the boss and cone along x, four bronze blades round it (turning about x: rig.shScrew), the shaft forward
+      const R = h / 2 - 0.01, hb = Math.min(0.2, w * 0.32), bronze = lin('#b08d57'), blades = [];
+      for (let i = 0; i < 4; i++) blades.push(bladeGeo(hb * 0.8, R, Math.min(0.62, R * 0.62), Math.min(0.5, R * 0.48), Math.min(0.05, w * 0.08), 0.75, 0.35, 'xz', bronze, bronze, 0.01).rotateY((i * TAU) / 4));
+      const bl = merge(blades).rotateZ(-Math.PI / 2); // (the blades' axis y turned onto x)
+      const boss = new THREE.LatheGeometry([[0.001, -w * 0.5], [hb * 0.55, -w * 0.38], [hb, -w * 0.18], [hb, w * 0.12], [hb * 0.7, w * 0.2]].map(([r, y]) => v2(r, y)), 20).rotateZ(-Math.PI / 2);
+      const shaft = new THREE.CylinderGeometry(hb * 0.45, hb * 0.45, w * 0.32, 14).rotateZ(Math.PI / 2).translate(w * 0.34, 0, 0);
+      const n0 = boss.attributes.position.count, c = new Float32Array(n0 * 3);
+      for (let i = 0; i < n0; i++) c.set(bronze, i * 3);
+      boss.setAttribute('color', new THREE.BufferAttribute(c, 3));
+      return node([[shaft, 'steel']], [{ role: 'shScrew', pos: [0, 0, 0], pieces: [[merge([bl, boss]), 'vcMetal']], subs: [] }]);
+    }
+    if (st === 'rudder') { // the blade (a symmetric foil, chord along x, the leading edge forward) and its stock, turning about the stock (rig.shRud)
+      const L = shRudderLay(d), c = L.le - L.te, sec = [];
+      for (const [f, t] of FOIL) sec.push([L.le - f * c - L.xs, (t * L.t) / 2 * 0.98]);
+      const blade = prismY(sec, L.bot, L.top), stock = new THREE.CylinderGeometry(L.rs, L.rs, h / 2 - L.top + 0.02, 12).translate(0, (h / 2 + L.top) / 2 - 0.01, 0);
+      return node([], [{ role: 'shRud', pos: [L.xs, 0, 0], pieces: [[blade, 'antifoul'], [stock, 'steelDark']], subs: [] }]);
+    }
+    return shipKit2(d); // [WP5]
+  }
+  // [WP5] the rest of the ships' kit (parts.js SH_KIT2, from the numbers its 2D art is drawn from: shKitPts, shOutboardLay,
+  // shJetLay, shFoilLay, shLatticeLay): plated prisms of their outlines (the 2D art on every face) with glass where it has
+  // windows; built masts, hydrofoils on their struts, an outboard and a waterjet's nozzle that swing with the helm
+  function shipKit2(d) {
+    const w = d.w, h = d.h, D = d.depth || w, st = d.style, t = h / 2;
+    const side = (x0, x1, y0, y1, zg) => { const g = []; for (const s of [-1, 1]) g.push(geo([x0, y0, s * zg, x1, y0, s * zg, x1, y1, s * zg, x0, y1, s * zg], [0, 0, s, 0, 0, s, 0, 0, s, 0, 0, s], null, s > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2])); return g; };
+    const slant = (a, c, f0, f1, zf) => { // glass along an outline edge a -> c (f0..f1 of it), across ±zf
+      const L = Math.hypot(c[0] - a[0], c[1] - a[1]), nx = (c[1] - a[1]) / L, ny = -(c[0] - a[0]) / L;
+      const ax = a[0] + (c[0] - a[0]) * f0 + nx * 0.006, ay = a[1] + (c[1] - a[1]) * f0 + ny * 0.006, bx = a[0] + (c[0] - a[0]) * f1 + nx * 0.006, by = a[1] + (c[1] - a[1]) * f1 + ny * 0.006;
+      return geo([ax, ay, zf, bx, by, zf, bx, by, -zf, ax, ay, -zf], [nx, ny, 0, nx, ny, 0, nx, ny, 0, nx, ny, 0], null, [0, 2, 1, 0, 3, 2]);
+    };
+    if (st === 'bridgeL') { // the raked pilot house's windows down each side and across its front
+      const P = shKitPts(d), zg = D / 2 + 0.006, glass = side(-w / 2 + w * 0.12, w / 2 - w * 0.14, t - h * 0.3, t - h * 0.1, zg);
+      glass.push(slant(P[2], P[3], 0.1, 0.85, D / 2 - D * 0.05));
+      return node([[plated(d, { pts: P, zh: D / 2 }), 'plate'], [merge(glass), 'glass']]);
+    }
+    if (st === 'console') { // its body, the windscreen on its front edge and the wheel
+      const P = shKitPts(d), zf = D / 2 - D * 0.08, a = [w * 0.42, h * 0.08], c = [w * 0.12, t], scr = slant(a, c, 0, 1, zf);
+      const wheel = new THREE.TorusGeometry(w * 0.09, 0.015, 6, 18).rotateY(Math.PI / 2).rotateZ(-0.5).translate(-w * 0.02, h * 0.28, 0);
+      return node([[plated(d, { pts: P, zh: D / 2 }), 'plate'], [scr, 'glass'], [wheel, 'ink']]);
+    }
+    if (st === 'shStealth' || st === 'funnel') return node([[plated(d, { pts: shKitPts(d), zh: D / 2 }), 'plate']]);
+    if (st === 'lattice') { // four legs tapering to the platform, a cross-brace in each bay of each face, the platform and its rail
+      const L = shLatticeLay(d), at = (yy) => { const k = (yy - L.y0) / (L.y1 - L.y0); return [L.b[0] + (L.t[0] - L.b[0]) * k, L.b[1] + (L.t[1] - L.b[1]) * k]; }, g = [];
+      const C = [[1, 1], [1, -1], [-1, -1], [-1, 1]];
+      for (const [sx, sz] of C) g.push(rod([sx * L.b[0], L.y0, sz * L.b[1]], [sx * L.t[0], L.y1, sz * L.t[1]], L.r, 6));
+      for (let i = 0; i < L.bays; i++) {
+        const ya = Math.max(L.y0 + 0.1, L.y0 + ((L.y1 - L.y0) * i) / L.bays), yb = L.y0 + ((L.y1 - L.y0) * (i + 1)) / L.bays, A = at(ya), B = at(yb); // (a brace's foot clear of the mast's own: its end cap stays in the box)
+        for (let k = 0; k < 4; k++) { const [s0x, s0z] = C[k], [s1x, s1z] = C[(k + 1) % 4]; g.push(rod([s0x * A[0], ya, s0z * A[1]], [s1x * B[0], yb, s1z * B[1]], L.r * 0.6, 5), rod([s0x * B[0], yb, s0z * B[1]], [s1x * B[0], yb, s1z * B[1]], L.r * 0.6, 5)); }
+      }
+      const R = L.plat.r, rail = [];
+      for (const [sx, sz] of C) rail.push(rod([sx * R * 0.97, L.plat.y + L.plat.th, sz * R * 0.97], [sx * R * 0.97, L.plat.y + 0.45, sz * R * 0.97], 0.02, 5));
+      for (let k = 0; k < 4; k++) { const [s0x, s0z] = C[k], [s1x, s1z] = C[(k + 1) % 4]; rail.push(rod([s0x * R * 0.97, L.plat.y + 0.45, s0z * R * 0.97], [s1x * R * 0.97, L.plat.y + 0.45, s1z * R * 0.97], 0.02, 5)); }
+      return node([[merge(g), 'shipGrey'], [box(R * 2, L.plat.th, R * 2, 0, L.plat.y + L.plat.th / 2, 0), 'shipGrey'], [merge(rail), 'steelDark']]);
+    }
+    if (st === 'pole') { // a tapering pole, its yard and lights
+      const pole = new THREE.CylinderGeometry(w * 0.12, w * 0.28, h - 0.15, 12).translate(0, -0.075, 0), yard = rod([0, h * 0.18, -D * 0.48], [0, h * 0.18, D * 0.48], 0.035, 6);
+      return node([[merge([pole, yard, new THREE.CylinderGeometry(w * 0.25, w * 0.25, 0.15, 12).translate(0, -t + 0.075, 0)]), 'shipGrey'], [new THREE.SphereGeometry(0.08, 10, 8).translate(0, t - 0.1, 0), 'white']]);
+    }
+    if (st === 'outboard') { // the clamp on the transom; swinging about its stock (rig.shOut): the cowl, the leg, the plate, the gearcase and a three-bladed propeller
+      const L = shOutboardLay(d), C = L.cowl, G = L.leg, Hb = L.hub, cl = L.cl, zc = Math.min(D / 2, 0.28), sw = [];
+      const cowl = new THREE.CapsuleGeometry(Math.min(zc, (C.y1 - C.y0) / 2), Math.max(0.01, C.x1 - C.x0 - 2 * Math.min(zc, (C.y1 - C.y0) / 2)), 6, 14).rotateZ(Math.PI / 2).scale(1, (C.y1 - C.y0) / 2 / Math.min(zc, (C.y1 - C.y0) / 2), 1).translate((C.x0 + C.x1) / 2 - cl, (C.y0 + C.y1) / 2, 0);
+      sw.push([cowl, 'ink'], [box(G.x1 - G.x0, G.y1 - G.y0, 0.1, (G.x0 + G.x1) / 2 - cl, (G.y0 + G.y1) / 2, 0), 'steelDark'], [box(L.plate.x1 - L.plate.x0, 0.04, Math.min(D * 0.8, 0.4), (L.plate.x0 + L.plate.x1) / 2 - cl, L.plate.y + 0.02, 0), 'steelDark'],
+        [new THREE.CapsuleGeometry(Hb.r, (G.x1 - G.x0) * 1.2, 4, 10).rotateZ(Math.PI / 2).translate((G.x0 + G.x1) / 2 - cl, Hb.y, 0), 'steelDark']);
+      const blades = []; for (let i = 0; i < 3; i++) blades.push(box(0.03, Hb.R - Hb.r, 0.12, 0, Hb.r + (Hb.R - Hb.r) / 2, 0).rotateY(0.4).rotateX((i * TAU) / 3));
+      sw.push([merge(blades).translate(Hb.x - cl, Hb.y, 0), 'steel']);
+      return node([[box(w / 2 - cl + 0.04, 0.35, 0.18, (w / 2 + cl - 0.04) / 2, G.y1 - 0.075, 0), 'steelDark']], [{ role: 'shOut', pos: [cl, 0, 0], pieces: sw, subs: [] }]);
+    }
+    if (st === 'waterjet') { // the duct (fixed, in the transom) and the nozzle with its bucket, swinging about xn (rig.shJet)
+      const L = shJetLay(d), U = L.duct, N = L.noz;
+      const duct = new THREE.CylinderGeometry(U.r, U.r, U.x1 - U.x0, 20).rotateZ(Math.PI / 2).translate((U.x0 + U.x1) / 2, 0, 0);
+      const noz = new THREE.CylinderGeometry(N.r1, N.r0, L.xn - N.x0, 20, 1, true).rotateZ(Math.PI / 2).translate((N.x0 - L.xn) / 2, 0, 0);
+      const bucket = new THREE.CylinderGeometry(U.r * 0.95, U.r * 0.95, 0.12, 16, 1, false, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI / 2).translate(N.x0 - L.xn + 0.1, N.r0 * 0.3, 0);
+      return node([[duct, 'steelDark']], [{ role: 'shJet', pos: [L.xn, 0, 0], pieces: [[noz, 'steel'], [bucket, 'steelDark']], subs: [] }]);
+    }
+    if (st === 'foil' || st === 'foilAft') { // struts (a thin foil section, fore and aft) down to the foil, spanning the part's depth; pods at foilAft's feet
+      const L = shFoilLay(d), sec = (c, th) => FOIL.map(([f, k]) => [c / 2 - f * c, k * th / 2 * 0.98]), parts = [];
+      for (const z of L.zs) parts.push([prismY(sec(L.sc, L.st), L.yf, L.top).translate(0, 0, z), 'shipGrey']);
+      const span = prismY(sec(L.c, L.t), -L.span, L.span).rotateX(Math.PI / 2).translate(0, L.yf, 0);
+      parts.push([span, 'antifoul']);
+      if (L.pod) for (const z of L.zs) parts.push([new THREE.CapsuleGeometry(L.pod.r, L.pod.x1 - L.pod.x0 - 2 * L.pod.r, 4, 12).rotateZ(Math.PI / 2).translate((L.pod.x0 + L.pod.x1) / 2, L.yf, z), 'steelDark']);
+      return node(parts);
+    }
+    return node([[plated(d), 'plate']]); // (the deckhouse, the hangar, the helicopter deck and what goes inside: plated boxes painted with their views)
+  }
+  // [WP9] the naval weapons' models (parts.js NV_KIT, from the layouts their 2D art is drawn from: nvCiwsLay, nvAsmLay,
+  // nvVlsLay, nvTorpLay, nvDecoyLay), in the paint (shipGrey, haze grey unless painted): the close-in gun's mount turning on
+  // its pedestal (rig.nvYaw: p.aimYaw, ship.js's) under its white radome, its six barrels elevating (rig.nvPitch: p.aimEl)
+  // and spinning while it fires (rig.nvSpin); canisters whose front covers go as their missiles do and launch cells whose
+  // hatch lids do (rig.nvCap0.., by p.ammo); torpedo tubes on their pedestal; a decoy launcher's block of tubes
+  function navalKit(d) {
+    const w = d.w, h = d.h, D = d.depth || w, st = d.style, subs = [];
+    if (st === 'nvCiws') {
+      const L = nvCiwsLay(d), B = L.base, M = L.mount, Dm = L.dome, G = L.gun, yb = L.yb, r = Dm.r;
+      const dome = new THREE.LatheGeometry([[0.001, Dm.y0], [r, Dm.y0], [r, Dm.y1 - r], ...[1, 2, 3, 4, 5, 6].map((i) => { const a = (i / 6) * (Math.PI / 2); return [r * Math.cos(a), Dm.y1 - r + r * Math.sin(a)]; })].map(([q, y]) => v2(Math.max(0.001, q), y - yb)), 24).translate(Dm.x, 0, 0);
+      const bar = [];
+      for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU, R = G.r * 0.62; bar.push(rod([0, R * Math.cos(a), R * Math.sin(a)], [G.L, R * Math.cos(a), R * Math.sin(a)], G.br, 6)); }
+      for (const f of [0.3, 0.92]) bar.push(new THREE.CylinderGeometry(G.r * 1.15, G.r * 1.15, 0.06, 14).rotateZ(Math.PI / 2).translate(G.L * f, 0, 0));
+      return node([[new THREE.CylinderGeometry(B.r * 0.92, B.r, B.y1 - B.y0, 24).translate(0, (B.y0 + B.y1) / 2, 0), 'shipGrey']],
+        [{ role: 'nvYaw', pos: [0, yb, 0], pieces: [[box(M.x1 - M.x0, M.y1 - M.y0, M.z * 2, (M.x0 + M.x1) / 2, (M.y0 + M.y1) / 2 - yb, 0), 'shipGrey'], [dome, 'white']],
+          subs: [{ role: 'nvPitch', pos: [G.x, G.y - yb, 0], pieces: [[new THREE.CylinderGeometry(G.r * 1.1, G.r * 1.1, 0.16, 14).rotateZ(Math.PI / 2).translate(0.04, 0, 0), 'steelDark']],
+            subs: [{ role: 'nvSpin', pieces: [[merge(bar), 'gunmetal']], subs: [] }] }] }]);
+    }
+    if (st === 'nvAsm') {
+      const L = nvAsmLay(d), a = Math.atan2(L.s, L.c), legs = [], cans = [];
+      const B0 = L.box(0);
+      for (const z of L.zs) for (const f of [0.18, 0.78]) { const lx = B0[0][0] + (B0[1][0] - B0[0][0]) * f, ly = B0[0][1] + (B0[1][1] - B0[0][1]) * f; legs.push(box(0.12, ly + h / 2, 0.12, lx, (ly - h / 2) / 2, z)); }
+      legs.push(box(B0[1][0] - B0[0][0] + 0.2, 0.06, D - 0.1, (B0[0][0] + B0[1][0]) / 2, -h / 2 + 0.03, 0));
+      for (let r = 0; r < L.rows; r++) {
+        const B = L.box(r), cx = (B[0][0] + B[2][0]) / 2, cy = (B[0][1] + B[2][1]) / 2;
+        for (let c = 0; c < 2; c++) {
+          const z = L.zs[c], k = c * L.rows + r;
+          cans.push(box(L.len, L.ch, L.cw, 0, 0, 0).rotateZ(a).translate(cx, cy, z));
+          const m = L.mouth(k);
+          subs.push({ role: 'nvCap' + k, pieces: [[box(0.06, L.ch * 0.9, L.cw * 0.9, 0, 0, 0).rotateZ(a).translate(m.x + L.c * 0.02, m.y + L.s * 0.02, m.z), 'white']], subs: [] });
+        }
+      }
+      return node([[merge(legs), 'steelDark'], [merge(cans), 'shipGrey']], subs);
+    }
+    if (st === 'nvVls') { // (its body a little under the deck line: the deck covers it; its hatch lids just over it, dark cells under them)
+      const L = nvVlsLay(d), t = h / 2, pits = [];
+      for (let i = 0; i < L.cells.length; i++) {
+        const c = L.cells[i];
+        pits.push(box(L.cx, 0.006, L.cz, c.x, t + 0.003, c.z));
+        subs.push({ role: 'nvCap' + i, pieces: [[box(L.cx * 0.98, 0.006, L.cz * 0.98, c.x, t + 0.009, c.z), 'shipGrey']], subs: [] });
+      }
+      return node([[plated(d, { pts: [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, t - 0.03], [-w / 2, t - 0.03]], zh: D / 2 }), 'plate'], [merge(pits), 'ink']], subs);
+    }
+    if (st === 'nvTorp') {
+      const L = nvTorpLay(d), P = L.plate, tubes = [], bands = [];
+      for (const z of L.zs) {
+        tubes.push(new THREE.CylinderGeometry(L.r, L.r, L.x1 - L.x0, 16).rotateZ(Math.PI / 2).translate((L.x0 + L.x1) / 2, L.y, z));
+        for (const f of [0.03, 0.5, 0.97]) bands.push(new THREE.CylinderGeometry(L.r * 1.12, L.r * 1.12, 0.1, 16).rotateZ(Math.PI / 2).translate(L.x0 + (L.x1 - L.x0) * f, L.y, z));
+      }
+      return node([[merge(tubes), 'shipGrey'], [merge([...bands, box(P.hx * 2, P.y1 - P.y0, P.hz * 2, 0, (P.y0 + P.y1) / 2, 0), new THREE.CylinderGeometry(L.post.r, L.post.r, L.post.y1 - L.post.y0, 14).translate(0, (L.post.y0 + L.post.y1) / 2, 0)]), 'steelDark']]);
+    }
+    if (st === 'nvDecoy') {
+      const L = nvDecoyLay(d), B = L.block, mouths = [];
+      for (let i = 0; i < L.rows; i++) for (let j = 0; j < L.cols; j++) mouths.push(new THREE.CylinderGeometry(L.r, L.r, 0.02, 14).translate(B.x0 + ((B.x1 - B.x0) * (j + 0.5)) / L.cols, B.y1 + 0.006, -D * 0.4 + ((D * 0.8) * (i + 0.5)) / L.rows));
+      return node([[merge([box(B.x1 - B.x0, B.y1 - B.y0, D * 0.9, (B.x0 + B.x1) / 2, (B.y0 + B.y1) / 2, 0)]), 'shipGrey'], [box(L.base.hx * 2, L.base.y1 - L.base.y0, D * 0.6, 0, (L.base.y0 + L.base.y1) / 2, 0), 'steelDark'], [merge(mouths), 'ink']]);
+    }
+    return node([[plated(d), 'plate']]);
+  }
+  // their motion: the close-in gun trained and elevated where ship.js has it, its barrels spinning while it fires; a
+  // launcher's covers and lids as its missiles are (p.ammo)
+  function navalAnim(rig, p, dt) {
+    if (rig.nvYaw) rig.nvYaw.rotation.y = -(p.aimYaw || 0);
+    if (rig.nvPitch) rig.nvPitch.rotation.z = p.aimEl || 0;
+    if (rig.nvSpin && p.gunOn) rig.nvSpin.rotation.x = (rig.nvSpin.rotation.x + 45 * dt) % TAU;
+    if (p.ammo !== rig.nvShown && rig.nvCap0) { rig.nvShown = p.ammo; const n = p.ammo == null ? Infinity : p.ammo; for (let k = 0; rig['nvCap' + k]; k++) rig['nvCap' + k].visible = k < n; }
+  }
+  // the ship kit's motion: a propeller turning with its shaft (p.rpm, rev/min; the port one the other way), a rudder over
+  // to its angle (p.rud, °: the trailing edge to starboard, +z, for a positive angle). Either may be missing (still).
+  function shipAnim(rig, p, dt) {
+    if (rig.shScrew) { const rpm = Number.isFinite(p.rpm) ? p.rpm : 0; if (rpm) rig.shScrew.rotation.x = (rig.shScrew.rotation.x + (partZ(p) < 0 ? -1 : 1) * (rpm / 60) * TAU * dt) % TAU; }
+    if (rig.shRud) { const a = Number.isFinite(p.rud) ? clamp(p.rud, -60, 60) : 0; rig.shRud.rotation.y = (a * Math.PI) / 180; }
+    if (rig.shRamp) { const a = p.ramp ? Math.min(1, (rig.rampA || 0) + dt / 2) : Math.max(0, (rig.rampA || 0) - dt / 2); if (a !== rig.rampA) { rig.rampA = a; rig.shRamp.rotation.z = -a * 1.2; } } // [WP5] (p.ramp: Ship's beached flag)
+    for (const g of [rig.shOut, rig.shJet]) if (g) { const a = Number.isFinite(p.rud) ? clamp(p.rud, -60, 60) : 0; g.rotation.y = (a * Math.PI) / 180; } // [WP5] (an outboard and a waterjet's nozzle swing with the helm)
+  }
+
   // ------------------------------------------------------------------ models by recipe
   const y0 = (h, f) => -h / 2 + h * f; // a height up a part, as a fraction
   const BUILD = {
@@ -1366,7 +1650,25 @@ const Parts3D = (() => {
         list.push([merge(dark), 'steelDark']);
         return node(list);
       }
+      if (SH_KIT.has(st)) return shipKit(d); // [WP2] (the ships update's wheelhouse, propeller and rudder)
+      if (NV_KIT.has(st)) return navalKit(d); // [WP9] (its naval weapons)
       return node([[plated(d), 'plate']]);
+    },
+    // [WP2] a ship's hull segment, lofted from its rings (shipHullGeo); a skin is baked into its colours (SKIN_GEO)
+    shipHull(d, flip, skin) {
+      const S = skinFor(skin, d), list = [[shipHullGeo(d, S), S && S.camo ? 'shipHullCamo' : 'shipHull']], H = d.shull, subs = [];
+      if (H.tubes) { // [WP5] a RIB's buoyancy tubes along both gunwales, round the bow (shTubeLay: the 2D art's)
+        const T = shTubeLay(d), g = [];
+        for (const s of [-1, 1]) g.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(T.pts.map(([x, y, z]) => new THREE.Vector3(x, y, s * z))), 48, T.r, 10, false));
+        for (const s of [-1, 1]) { const [x, y, z] = T.pts[0]; g.push(new THREE.SphereGeometry(T.r, 10, 8).translate(x, y, s * z)); }
+        list.push([merge(g), 'ribTube']);
+      }
+      if (H.ends && H.ends.fore === 'ramp') { // [WP5] a landing craft's ramp, hinged at its foot (rig.shRamp: it drops when she is beached)
+        const R = shRampLay(d), pl = box(R.t, R.h, R.z * 2, -R.t / 2 + 0.01, R.h / 2, 0), ribs = []; // (its face 1 cm proud of the hull's end: no fighting over its pixels)
+        for (let i = 1; i < 5; i++) ribs.push(box(R.t * 0.6, 0.06, R.z * 2 - 0.1, -R.t - R.t * 0.3 + 0.01, (R.h * i) / 5, 0));
+        subs.push({ role: 'shRamp', pos: [R.x, R.y, 0], pieces: [[merge([pl, ...ribs]), 'shipGrey']], subs: [] });
+      }
+      return node(list, subs);
     },
     // ---- the big update's drones and counter-drone kit, built from parts.js drLayout (the numbers the 2D art is drawn
     // from), each inside its part's box
@@ -2150,7 +2452,10 @@ void main() {
   function pylonsFor(rig, parts, group) {
     dropPylons(rig);
     const p = rig.part, d = p.def;
-    if (d.float || d.shape === 'skid' || d.gv || !(d.twinZ || d.pod || recipe(d) === 'ecm' || p.att != null)) return; // floats and skids carry their own struts (armour sits on what it is joined to)
+    // floats and skids carry their own struts (armour sits on what it is joined to); [ships] a hull hung under a wing (a
+    // flying boat's wingtip float) is strutted to it as a pod is: it floats clear of the wing
+    const onWing = d.shull && p.att != null && parts.some((q) => q.id === p.att && q.def.wing);
+    if (d.float || d.shape === 'skid' || (d.gv && !onWing) || !(d.twinZ || d.pod || recipe(d) === 'ecm' || p.att != null)) return;
     // (an old pair moved in or out along a wing it is mounted on in the side view hangs on that wing)
     const old = d.twinZ && p.att == null, area = (q) => { const A = partRect(p), B = partRect(q); return spanOverlap(A.l, A.r, B.l, B.r) * spanOverlap(A.b, A.t, B.b, B.t); };
     const wing = old && Math.abs(partZ(p) - d.twinZ) > 5e-4 && parts.filter((q) => q.def.wing && !q.def.twinZ && partsMounted2D(p, q)).sort((a, b) => area(b) - area(a))[0];
@@ -2339,6 +2644,8 @@ void main() {
       for (const g of rig.spins) g.rotation.z = rig.gs;
     }
     if (rig.recoil) { const x = rig.kick * recoilK(p.shotAt != null ? time - p.shotAt : -1); if (x !== rig.rx) { rig.rx = x; rig.recoil.position.y = -x; } }
+    if (rig.shScrew || rig.shRud || rig.shOut || rig.shJet || rig.shRamp) shipAnim(rig, p, dt); // [WP2] (the ships update's propellers and rudders; [WP5] outboards and waterjets)
+    if (rig.nvYaw || rig.nvCap0) navalAnim(rig, p, dt); // [WP9] (a close-in gun at work; launchers' covers and lids)
     if (rig.antenna && !vm.builder && !p.broken) rig.antenna.rotation.y = (rig.antenna.rotation.y + ((((d.searchRadar && d.searchRadar.rpm) || 60) * TAU) / 60) * dt) % TAU;
   }
   // A rig's see-through: the builder's (loose parts) times X-ray's (armour at 0.3)
